@@ -103,7 +103,8 @@ let total = engine.total_volume();
 engine.write_stl(std::fs::File::create("out.stl")?)?;
 engine.write_mesh_file("out.obj")?;   // 拡張子で stl / obj / glb / 3mf を選ぶ
 engine.write_step(std::fs::File::create("out.step")?, "machined")?;   // 解析面の B-rep（brep-export.md）
-let mesh = engine.combined_mesh();    // TriMesh
+let mesh = engine.combined_mesh();    // TriMesh：全保持単位の連結（表示用）
+let solid = engine.merged_mesh()?;    // TriMesh：タイルを結合した 1 つの閉じたソリッド（出力・比較用）
 ```
 
 ## 素材の読込
@@ -151,7 +152,8 @@ if let Some(c) = &report.collision {
 
 ```rust
 use cutrail::SegmentBuilder;
-let mut builder = SegmentBuilder::new(0.5, 2.0);   // 0.5 mm または 2° 以上の移動で区間を出す
+let mut builder = SegmentBuilder::new(5.0, 2.0)   // 区間の長さを 5 mm、軸の回転を 2° で区切る
+    .with_max_deviation(0.01);                    // 経路が弦から 0.01 mm 離れる前に区間を切る
 for pose in poses {
     if let Some(seg) = builder.push(pose) {
         engine.cut(&tool, &seg)?;
@@ -160,6 +162,14 @@ for pose in poses {
 if let Some(seg) = builder.flush() {
     engine.cut(&tool, &seg)?;
 }
+```
+
+距離のしきい値だけでは角を弦で横切る（1 mm のしきい値で 90° の角が最大 0.5 mm 削れる）。`with_max_deviation` を使うと、飛ばしたサンプルがすべて出力する弦から許容差以内に収まるように区間を切るので、角はその角のサンプルで切れ、円弧は許容差の弦になる。`min_distance` は区間の長さの上限として働く。記録されたロボット経路（99 秒のサイクルを 100 Hz で約 9,900 姿勢）では、許容差 0.01 mm・上限 5 mm・2° で区間は約 700 本、基準の加工結果との差は全サンプルで 0.02 mm 以内、1 kHz のストリームからも同じ区間が得られる。計測は [accuracy-and-performance.md](accuracy-and-performance.md) を参照。
+
+`examples/pose_stream.rs` はこのようなストリームを CSV（1 行に `t,x,y,z,ax,ay,az`、素材座標系。ヘッダ行 `# stock_box` と `# tool`）から再生し、しきい値とタイルサイズを変えて時間・区間数・基準メッシュとの差を報告する。
+
+```sh
+cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --tile 20 --out out.obj
 ```
 
 ## WASM

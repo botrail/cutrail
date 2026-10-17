@@ -54,15 +54,29 @@ impl Kernel for ManifoldKernel {
     }
 
     fn make_mesh(&self, mesh: &TriMesh, merge_tolerance: f64) -> Result<Manifold> {
-        let mut merged = mesh.clone();
-        merged.merge_vertices(merge_tolerance);
-        let gl = MeshGL64 {
-            num_prop: 3,
-            vert_properties: merged.positions.iter().flat_map(|p| p.iter().copied()).collect(),
-            tri_verts: merged.triangles.iter().flat_map(|t| t.iter().map(|&i| i as u64)).collect(),
-            ..Default::default()
-        };
-        let m = Manifold::from_mesh_gl64(&gl);
+        // A mesh whose vertices already match exactly (an OBJ, a well-formed STL, our own output) must not be
+        // merged at the coarse tolerance: fine features would collapse. Try the exact weld first, then the
+        // requested tolerance for meshes with sloppy vertices.
+        let mut last = None;
+        for tolerance in [1e-7_f64.min(merge_tolerance), merge_tolerance] {
+            let mut merged = mesh.clone();
+            merged.merge_vertices(tolerance);
+            let gl = MeshGL64 {
+                num_prop: 3,
+                vert_properties: merged.positions.iter().flat_map(|p| p.iter().copied()).collect(),
+                tri_verts: merged.triangles.iter().flat_map(|t| t.iter().map(|&i| i as u64)).collect(),
+                ..Default::default()
+            };
+            let m = Manifold::from_mesh_gl64(&gl);
+            if matches!(m.status(), ManifoldStatus::NoError) && !m.is_empty() {
+                return Ok(m);
+            }
+            last = Some(m);
+            if tolerance >= merge_tolerance {
+                break;
+            }
+        }
+        let m = last.expect("at least one attempt");
         match m.status() {
             ManifoldStatus::NoError => {
                 if m.is_empty() {

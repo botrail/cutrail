@@ -1,7 +1,7 @@
 //! Machining engine: stock state (parts or tiles), per-segment subtraction, validation and commit, history.
 
 use crate::error::{Error, Result};
-use crate::geom::Aabb;
+use crate::geom::{Aabb, Point3};
 use crate::kernel::Kernel;
 use crate::mesh::TriMesh;
 use crate::motion::MotionSegment;
@@ -206,6 +206,130 @@ impl<K: Kernel> std::fmt::Debug for MachiningEngine<K> {
     }
 }
 
+/// Whether every edge is shared by exactly two triangles.
+fn is_closed(mesh: &TriMesh) -> bool {
+    let mut count: HashMap<(u32, u32), u8> = HashMap::new();
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            *count.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    }
+    count.values().all(|&n| n == 2)
+}
+
+/// Welds vertices closer than `tol` and drops the triangles that collapse, keeping `ids` aligned. The union of
+/// touching cells can leave the two sides of a seam with their own copies of the seam vertices.
+fn weld_vertices(mesh: &mut TriMesh, ids: Option<&mut Vec<u32>>, tol: f64) -> usize {
+    let cell = |p: Point3| ((p[0] / tol).floor() as i64, (p[1] / tol).floor() as i64, (p[2] / tol).floor() as i64);
+    let mut grid: HashMap<(i64, i64, i64), Vec<u32>> = HashMap::new();
+    let mut remap: Vec<u32> = (0..mesh.positions.len() as u32).collect();
+    let mut welded = 0usize;
+    for (i, &p) in mesh.positions.iter().enumerate() {
+        let (cx, cy, cz) = cell(p);
+        let mut found = None;
+        'search: for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(list) = grid.get(&(cx + dx, cy + dy, cz + dz)) {
+                        for &j in list {
+                            let q = mesh.positions[j as usize];
+                            if ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt() <= tol {
+                                found = Some(j);
+                                break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        match found {
+            Some(j) => {
+                remap[i] = j;
+                welded += 1;
+            }
+            None => grid.entry((cx, cy, cz)).or_default().push(i as u32),
+        }
+    }
+    if welded == 0 {
+        return 0;
+    }
+    let mut kept = Vec::with_capacity(mesh.triangles.len());
+    let mut kept_ids = Vec::new();
+    for (i, t) in mesh.triangles.iter().enumerate() {
+        let t = [remap[t[0] as usize], remap[t[1] as usize], remap[t[2] as usize]];
+        if t[0] == t[1] || t[1] == t[2] || t[0] == t[2] {
+            continue;
+        }
+        kept.push(t);
+        if let Some(ids) = ids.as_deref() {
+            kept_ids.push(ids[i]);
+        }
+    }
+    mesh.triangles = kept;
+    if let Some(ids) = ids {
+        *ids = kept_ids;
+    }
+    welded
+}
+
+/// Removes pairs of coincident triangles with opposite orientation. A union of cells that touch along a seam can
+/// leave such a zero-thickness wall where the two sides were triangulated from slightly different vertices; the
+/// surface stays closed without it because every edge of the wall also bounds the real faces on either side.
+/// Returns the number of triangles removed. `ids` (one per triangle) is kept aligned.
+fn drop_double_walls(mesh: &mut TriMesh, ids: Option<&mut Vec<u32>>) -> usize {
+    let q = |v: f64| (v * 1e9).round() as i64;
+    let key_of = |p: Point3| (q(p[0]), q(p[1]), q(p[2]));
+    let mut groups: HashMap<[(i64, i64, i64); 3], Vec<usize>> = HashMap::new();
+    for (i, t) in mesh.triangles.iter().enumerate() {
+        let mut k = [key_of(mesh.positions[t[0] as usize]), key_of(mesh.positions[t[1] as usize]), key_of(mesh.positions[t[2] as usize])];
+        k.sort();
+        groups.entry(k).or_default().push(i);
+    }
+    let mut drop = vec![false; mesh.triangles.len()];
+    for members in groups.values() {
+        if members.len() < 2 {
+            continue;
+        }
+        // Pair up triangles of opposite orientation
+        let mut unpaired: Vec<usize> = members.clone();
+        while unpaired.len() >= 2 {
+            let a = unpaired.remove(0);
+            let ta = mesh.triangles[a];
+            let ka = [key_of(mesh.positions[ta[0] as usize]), key_of(mesh.positions[ta[1] as usize]), key_of(mesh.positions[ta[2] as usize])];
+            let Some(pos) = unpaired.iter().position(|&b| {
+                let tb = mesh.triangles[b];
+                let kb = [key_of(mesh.positions[tb[0] as usize]), key_of(mesh.positions[tb[1] as usize]), key_of(mesh.positions[tb[2] as usize])];
+                // Same vertex set in reversed cyclic order
+                (0..3).any(|s| kb[0] == ka[s] && kb[1] == ka[(s + 2) % 3] && kb[2] == ka[(s + 1) % 3])
+            }) else {
+                break;
+            };
+            let b = unpaired.remove(pos);
+            drop[a] = true;
+            drop[b] = true;
+        }
+    }
+    let removed = drop.iter().filter(|d| **d).count();
+    if removed > 0 {
+        let mut kept = Vec::with_capacity(mesh.triangles.len() - removed);
+        let mut kept_ids = Vec::new();
+        for (i, t) in mesh.triangles.iter().enumerate() {
+            if !drop[i] {
+                kept.push(*t);
+                if let Some(ids) = ids.as_deref() {
+                    kept_ids.push(ids[i]);
+                }
+            }
+        }
+        mesh.triangles = kept;
+        if let Some(ids) = ids {
+            *ids = kept_ids;
+        }
+    }
+    removed
+}
+
 impl<K: Kernel> MachiningEngine<K> {
     /// Creates an engine from stock primitives.
     ///
@@ -367,6 +491,18 @@ impl<K: Kernel> MachiningEngine<K> {
         self.cells.iter().map(|c| (c.id, c.mesh.get_or_init(|| self.kernel.mesh(&c.solid)))).collect()
     }
 
+    /// All cells united into one closed mesh. In tiled mode the tiles share faces along the seams, so the
+    /// concatenation of [`Self::combined_mesh`] is fine for display but not a single solid; this unites them
+    /// first (one boolean over all cells), which is what a watertight export or a comparison needs.
+    pub fn merged_mesh(&self) -> Result<TriMesh> {
+        let merged: K::Solid = match self.cells.len() {
+            0 => return Err(Error::InvalidInput("no material left".into())),
+            1 => self.cells[0].solid.clone(),
+            _ => self.kernel.union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>())?,
+        };
+        Ok(self.kernel.mesh(&merged))
+    }
+
     /// All cells concatenated into one mesh.
     pub fn combined_mesh(&self) -> TriMesh {
         let mut out = TriMesh::default();
@@ -396,7 +532,17 @@ impl<K: Kernel> MachiningEngine<K> {
             1 => self.cells[0].solid.clone(),
             _ => self.kernel.union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>())?,
         };
-        let (mesh, ids) = self.kernel.mesh_with_sources(&machined);
+        let (raw, raw_ids) = self.kernel.mesh_with_sources(&machined);
+        let (mut mesh, mut ids) = (raw.clone(), raw_ids.clone());
+        // The union of touching tiles can leave zero-thickness walls along the seams: weld the two sides,
+        // then drop the coincident opposite triangles. Keep the raw union if that does not stay closed.
+        if self.cells.len() > 1 {
+            weld_vertices(&mut mesh, Some(&mut ids), 1e-7);
+            if drop_double_walls(&mut mesh, Some(&mut ids)) > 0 && !is_closed(&mesh) {
+                mesh = raw;
+                ids = raw_ids;
+            }
+        }
         brep::reconstruct(&mesh, &ids, &self.sources, self.options.sweep_tolerance * 2.0)
     }
 
@@ -473,10 +619,30 @@ impl<K: Kernel> MachiningEngine<K> {
                 plan.bounds = plan.bounds.union(&piece_bounds);
                 let solid = self.kernel.make_swept(&volume)?;
                 let (solid, source_id) = self.kernel.with_fresh_id(&solid);
-                let source = if flat && from.is_vertical(1e-9) && to.is_vertical(1e-9) {
-                    Source::FlatSweep { radius, mesh_radius, from, to }
-                } else {
-                    Source::Other
+                let vertical = flat && from.is_vertical(1e-9) && to.is_vertical(1e-9);
+                let source = match segment.arc_geometry()? {
+                    Some(g) if vertical && g.n[2].abs() > 1.0 - 1e-9 && (g.h0 - g.h1).abs() < 1e-9 => {
+                        let (seg_from, seg_to) = segment.endpoints();
+                        let MotionSegment::Arc { center, .. } = segment else { unreachable!() };
+                        let a0 = (from.tip[1] - center[1]).atan2(from.tip[0] - center[0]);
+                        let a1 = (to.tip[1] - center[1]).atan2(to.tip[0] - center[0]);
+                        let mut step = (a1 - a0).abs();
+                        if step > std::f64::consts::PI {
+                            step = 2.0 * std::f64::consts::PI - step;
+                        }
+                        let chord_sagitta = (g.radius + mesh_radius) * (1.0 - (step / 2.0).cos());
+                        Source::ArcSweep {
+                            radius,
+                            mesh_radius,
+                            center: [center[0], center[1]],
+                            arc_radius: g.radius,
+                            chord_sagitta,
+                            from: *seg_from,
+                            to: *seg_to,
+                        }
+                    }
+                    _ if vertical => Source::FlatSweep { radius, mesh_radius, from, to },
+                    _ => Source::Other,
                 };
                 self.sources.insert(source_id, source);
                 plan.cutting.push((solid, piece_bounds));

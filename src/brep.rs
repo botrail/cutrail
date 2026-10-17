@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 use crate::geom::{cross, dot, norm, normalize, sub, Point3, Vector3};
 use crate::mesh::TriMesh;
 use crate::motion::Pose;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::{self, Write};
 
 /// Where a triangle came from.
@@ -27,6 +27,23 @@ pub enum Source {
         /// Start pose
         from: Pose,
         /// End pose
+        to: Pose,
+    },
+    /// A flat end mill sweep with axis +Z along a horizontal circular arc: its walls are cylinders about the arc center
+    ArcSweep {
+        /// Tool radius
+        radius: f64,
+        /// Circumradius of the polygon used in the mesh
+        mesh_radius: f64,
+        /// XY of the arc center
+        center: [f64; 2],
+        /// Radius of the arc followed by the tip
+        arc_radius: f64,
+        /// Largest distance between the chords of the mesh and the true walls
+        chord_sagitta: f64,
+        /// Start pose of the whole arc
+        from: Pose,
+        /// End pose of the whole arc
         to: Pose,
     },
     /// Anything else (treated as facets)
@@ -165,32 +182,58 @@ fn classify(mesh: &TriMesh, t: [u32; 3], source: &Source, tol: f64) -> (Key, Sur
                 let z = if (c[2] - floor).abs() < tol { floor } else { c[2] };
                 return plane_key([0.0, 0.0, if n[2] > 0.0 { 1.0 } else { -1.0 }], [c[0], c[1], z]);
             }
+            // The polygon of the mesh is within this distance of the true circle
+            let cap_tol = tol + (mesh_radius - radius).abs();
+            let xy = |v: u32| [mesh.positions[v as usize][0], mesh.positions[v as usize][1]];
+            let on_circle = |tip: Point3| t.iter().all(|&v| (norm([xy(v)[0] - tip[0], xy(v)[1] - tip[1], 0.0]) - mesh_radius).abs() < cap_tol);
             if plunge {
                 return cylinder_key([from.tip[0], from.tip[1]], *radius);
             }
             let u = [d[0] / len, d[1] / len];
             let left = [-u[1], u[0]];
-            let rel = [c[0] - from.tip[0], c[1] - from.tip[1]];
-            let t_along = rel[0] * u[0] + rel[1] * u[1];
-            let side = rel[0] * left[0] + rel[1] * left[1];
+            if (n[0] * u[0] + n[1] * u[1]).abs() < 1e-3 {
+                // Straight side wall: every vertex at the polygon's distance from the path, on one side
+                let side = |v: u32| (xy(v)[0] - from.tip[0]) * left[0] + (xy(v)[1] - from.tip[1]) * left[1];
+                let sides: Vec<f64> = t.iter().map(|&v| side(v)).collect();
+                if sides.iter().all(|s| (s.abs() - mesh_radius).abs() < cap_tol) && sides.iter().all(|s| s.signum() == sides[0].signum()) {
+                    // The true wall is the plane at radius r from the path
+                    let sign = sides[0].signum();
+                    let normal = [left[0] * sign, left[1] * sign, 0.0];
+                    let point = [from.tip[0] + left[0] * sign * radius, from.tip[1] + left[1] * sign * radius, c[2]];
+                    return plane_key(normal, point);
+                }
+            }
+            // End caps: every vertex on the polygon around a tip
+            for tip in [from.tip, to.tip] {
+                if on_circle(tip) {
+                    return cylinder_key([tip[0], tip[1]], *radius);
+                }
+            }
+        }
+    }
+    if let Source::ArcSweep { radius, mesh_radius, center, arc_radius, chord_sagitta, from, to } = source {
+        if n[2].abs() > 0.999 {
+            let floor = from.tip[2].min(to.tip[2]);
+            let z = if (c[2] - floor).abs() < tol { floor } else { c[2] };
+            return plane_key([0.0, 0.0, if n[2] > 0.0 { 1.0 } else { -1.0 }], [c[0], c[1], z]);
+        }
+        if n[2].abs() < 1e-3 {
+            let xy = |v: u32| [mesh.positions[v as usize][0], mesh.positions[v as usize][1]];
+            let dist = |v: u32, p: [f64; 2]| norm([xy(v)[0] - p[0], xy(v)[1] - p[1], 0.0]);
+            // Walls: the chords and the bulges at the sample poses all lie within the sagitta of the true cylinders
+            let wall_tol = tol + (mesh_radius - radius).abs() + chord_sagitta;
+            if t.iter().all(|&v| (dist(v, *center) - (arc_radius + radius)).abs() < wall_tol) {
+                return cylinder_key(*center, arc_radius + radius);
+            }
+            if arc_radius > radius && t.iter().all(|&v| (dist(v, *center) - (arc_radius - radius)).abs() < wall_tol) {
+                return cylinder_key(*center, arc_radius - radius);
+            }
+            // End caps: the tool cylinders at the ends of the arc
             let cap_tol = tol + (mesh_radius - radius).abs();
-            if t_along <= 1e-6 {
-                let dist = norm([rel[0], rel[1], 0.0]);
-                if (dist - mesh_radius).abs() < cap_tol {
-                    return cylinder_key([from.tip[0], from.tip[1]], *radius);
+            for tip in [from.tip, to.tip] {
+                if t.iter().all(|&v| (dist(v, [tip[0], tip[1]]) - mesh_radius).abs() < cap_tol) {
+                    return cylinder_key([tip[0], tip[1]], *radius);
                 }
-            } else if t_along >= len - 1e-6 {
-                let rel_b = [c[0] - to.tip[0], c[1] - to.tip[1]];
-                let dist = norm([rel_b[0], rel_b[1], 0.0]);
-                if (dist - mesh_radius).abs() < cap_tol {
-                    return cylinder_key([to.tip[0], to.tip[1]], *radius);
-                }
-            } else if (side.abs() - mesh_radius).abs() < cap_tol && (n[0] * u[0] + n[1] * u[1]).abs() < 1e-3 {
-                // Straight side wall; the true wall is the plane at radius r from the path
-                let sign = if side > 0.0 { 1.0 } else { -1.0 };
-                let normal = [left[0] * sign, left[1] * sign, 0.0];
-                let point = [from.tip[0] + left[0] * sign * radius, from.tip[1] + left[1] * sign * radius, c[2]];
-                return plane_key(normal, point);
             }
         }
     }
@@ -233,11 +276,49 @@ fn angle_about(center: [f64; 2], p: Point3) -> f64 {
     (p[1] - center[1]).atan2(p[0] - center[0])
 }
 
+/// Distance within which two surfaces count as tangent (they come from the same exact tool geometry).
+const TANGENT_TOL: f64 = 1e-6;
+
+/// Planes that pin a vertex to the contact line of tangent surface pairs. A side wall of a sweep is tangent to the
+/// end cylinders it joins, and alternating projections onto a plane and a cylinder tangent to it converge only
+/// linearly, so the contact line (a vertical generator) is added as an explicit constraint.
+fn tangent_constraints(surfaces: &[&Surface]) -> Vec<Surface> {
+    let mut out = Vec::new();
+    for (i, a) in surfaces.iter().enumerate() {
+        for b in &surfaces[i + 1..] {
+            match (a, b) {
+                (Surface::Plane { origin, normal }, Surface::Cylinder { center, radius })
+                | (Surface::Cylinder { center, radius }, Surface::Plane { origin, normal }) => {
+                    if normal[2].abs() > 1e-9 {
+                        continue;
+                    }
+                    let d = normal[0] * (center[0] - origin[0]) + normal[1] * (center[1] - origin[1]);
+                    if (d.abs() - radius).abs() < TANGENT_TOL {
+                        out.push(Surface::Plane { origin: [center[0], center[1], 0.0], normal: [-normal[1], normal[0], 0.0] });
+                    }
+                }
+                (Surface::Cylinder { center: c1, radius: r1 }, Surface::Cylinder { center: c2, radius: r2 }) => {
+                    let dx = c2[0] - c1[0];
+                    let dy = c2[1] - c1[1];
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d > TANGENT_TOL && ((d - (r1 + r2)).abs() < TANGENT_TOL || (d - (r1 - r2).abs()).abs() < TANGENT_TOL) {
+                        out.push(Surface::Plane { origin: [c1[0], c1[1], 0.0], normal: [-dy / d, dx / d, 0.0] });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 /// Snaps a vertex by projecting it onto every analytic surface it touches.
 fn snap(mut p: Point3, surfaces: &[&Surface]) -> Point3 {
+    let extra = tangent_constraints(surfaces);
+    let surfaces: Vec<&Surface> = surfaces.iter().copied().chain(extra.iter()).collect();
     for _ in 0..64 {
         let before = p;
-        for s in surfaces {
+        for s in &surfaces {
             match s {
                 Surface::Plane { origin, normal } => {
                     let d = dot(*normal, sub(p, *origin));
@@ -313,6 +394,41 @@ fn fit_curve(chain: &[Point3], a: &Surface, b: &Surface, start: Point3, end: Poi
             }
         }
     }
+}
+
+/// Splits a boundary loop that visits a vertex twice (a facet region pinched to a point, or with a slit)
+/// into loops that do not touch themselves; a slit of two vertices is dropped.
+fn split_self_touching(lp: Vec<u32>) -> Vec<Vec<u32>> {
+    let mut out = Vec::new();
+    let mut stack = vec![lp];
+    while let Some(lp) = stack.pop() {
+        let mut seen: HashMap<u32, usize> = HashMap::new();
+        let mut split = None;
+        for (i, &v) in lp.iter().enumerate() {
+            if let Some(&j) = seen.get(&v) {
+                split = Some((j, i));
+                break;
+            }
+            seen.insert(v, i);
+        }
+        match split {
+            Some((j, i)) => {
+                let inner: Vec<u32> = lp[j..i].to_vec();
+                let outer: Vec<u32> = lp[..j].iter().chain(lp[i..].iter()).copied().collect();
+                for part in [inner, outer] {
+                    if part.len() >= 3 {
+                        stack.push(part);
+                    }
+                }
+            }
+            None => {
+                if lp.len() >= 3 {
+                    out.push(lp);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Reconstructs a B-rep from a mesh and its provenance.
@@ -418,7 +534,7 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
             half.insert((t[k], t[(k + 1) % 3]), patch_of[i]);
         }
     }
-    let mut vertex_patches: HashMap<u32, HashSet<usize>> = HashMap::new();
+    let mut vertex_patches: HashMap<u32, BTreeSet<usize>> = HashMap::new();
     for (i, t) in mesh.triangles.iter().enumerate() {
         for &v in t {
             vertex_patches.entry(v).or_default().insert(patch_of[i]);
@@ -465,9 +581,7 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
             }
             if lp.last() == Some(&a) {
                 lp.pop();
-                if lp.len() >= 2 {
-                    loops_of_patch[p].push(lp);
-                }
+                loops_of_patch[p].extend(split_self_touching(lp));
             }
         }
     }
@@ -563,6 +677,28 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
                         }
                     };
                     let other_surface = other_patch.map(patch_surface).unwrap_or(&surface).clone();
+                    if let (Surface::Cylinder { center, radius }, true) = (&surface, other_surface == surface) {
+                        // The seam between the two halves of a split cylinder: a vertex that only touches this
+                        // cylinder and horizontal planes may slide along its circle, so the seam becomes a generator line.
+                        let free = |v: u32| {
+                            vertex_patches
+                                .get(&v)
+                                .map(|ps| ps.iter().all(|&q| *patch_surface(q) == surface || is_horizontal(patch_surface(q)).is_some()))
+                                .unwrap_or(false)
+                        };
+                        let mut align = |target: usize, reference: usize| {
+                            let r = brep.vertices[reference];
+                            if let Some(dir) = normalize([r[0] - center[0], r[1] - center[1], 0.0]) {
+                                let z = brep.vertices[target][2];
+                                brep.vertices[target] = [center[0] + dir[0] * radius, center[1] + dir[1] * radius, z];
+                            }
+                        };
+                        if free(*canonical.last().unwrap()) {
+                            align(end, start);
+                        } else if free(canonical[0]) {
+                            align(start, end);
+                        }
+                    }
                     let pts: Vec<Point3> = canonical.iter().map(|&v| snap(mesh.positions[v as usize], &[&surface, &other_surface])).collect();
                     let curve = fit_curve(&pts, &surface, &other_surface, brep.vertices[start], brep.vertices[end], tol);
                     brep.edges.push(Edge { start, end, curve });
@@ -618,7 +754,97 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
     if brep.faces.is_empty() {
         return Err(Error::Validation("no faces reconstructed".into()));
     }
+    cleanup(&mut brep, 1e-6);
     Ok(brep)
+}
+
+/// Quantized cell of a point, for grouping coincident vertices.
+fn cell_of(p: Point3, tol: f64) -> (i64, i64, i64) {
+    ((p[0] / tol).floor() as i64, (p[1] / tol).floor() as i64, (p[2] / tol).floor() as i64)
+}
+
+/// Groups vertices closer than `tol` to each other: returns, for each vertex, the index of its representative.
+fn coincident_groups(points: &[Point3], tol: f64) -> Vec<usize> {
+    let mut grid: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+    let mut rep: Vec<usize> = (0..points.len()).collect();
+    for (i, p) in points.iter().enumerate() {
+        let (cx, cy, cz) = cell_of(*p, tol);
+        let mut found = None;
+        'search: for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(list) = grid.get(&(cx + dx, cy + dy, cz + dz)) {
+                        for &j in list {
+                            if norm(sub(*p, points[j])) <= tol {
+                                found = Some(rep[j]);
+                                break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(r) = found {
+            rep[i] = r;
+        }
+        grid.entry((cx, cy, cz)).or_default().push(i);
+    }
+    rep
+}
+
+/// Merges vertices that snapped onto the same point and drops the edges that collapsed between them.
+/// Two polygon vertices straddling a tangent line both land on it, so this happens routinely.
+fn cleanup(brep: &mut Brep, tol: f64) {
+    let rep = coincident_groups(&brep.vertices, tol);
+    let mut edge_remap: Vec<Option<usize>> = vec![None; brep.edges.len()];
+    let mut edges: Vec<Edge> = Vec::with_capacity(brep.edges.len());
+    for (i, e) in brep.edges.iter().enumerate() {
+        let (start, end) = (rep[e.start], rep[e.end]);
+        // Distinct endpoints that merged: the edge has collapsed (closed loops never arrive as a single edge,
+        // since loops without corners are given two). A polyline is kept if it still goes somewhere.
+        let collapsed = start == end
+            && e.start != e.end
+            && match &e.curve {
+                Curve::Polyline(pts) => pts.iter().all(|p| norm(sub(*p, brep.vertices[start])) <= tol),
+                _ => true,
+            };
+        if collapsed {
+            continue;
+        }
+        edge_remap[i] = Some(edges.len());
+        edges.push(Edge { start, end, curve: e.curve.clone() });
+    }
+    for face in &mut brep.faces {
+        let mut loops = Vec::with_capacity(face.loops.len());
+        let mut outer = None;
+        for (li, lp) in face.loops.iter().enumerate() {
+            let kept: Vec<(usize, bool)> = lp.iter().filter_map(|&(e, forward)| edge_remap[e].map(|ne| (ne, forward))).collect();
+            let closed_single = kept.len() == 1 && matches!(edges[kept[0].0].curve, Curve::Circle { .. });
+            if kept.len() >= 2 || closed_single {
+                if li == face.outer {
+                    outer = Some(loops.len());
+                }
+                loops.push(kept);
+            }
+        }
+        face.loops = loops;
+        face.outer = outer.unwrap_or(0);
+    }
+    brep.faces.retain(|f| !f.loops.is_empty());
+    // Compact the vertex list to the ones still referenced
+    let mut new_index: Vec<Option<usize>> = vec![None; brep.vertices.len()];
+    let mut vertices = Vec::new();
+    for e in &mut edges {
+        for v in [&mut e.start, &mut e.end] {
+            if new_index[*v].is_none() {
+                new_index[*v] = Some(vertices.len());
+                vertices.push(brep.vertices[*v]);
+            }
+            *v = new_index[*v].unwrap();
+        }
+    }
+    brep.vertices = vertices;
+    brep.edges = edges;
 }
 
 impl Brep {
@@ -649,6 +875,15 @@ impl Brep {
 
     /// Consistency check: loops are closed and edge endpoints lie on both adjacent faces.
     pub fn check(&self, tolerance: f64) -> Result<()> {
+        let rep = coincident_groups(&self.vertices, tolerance);
+        if let Some((i, r)) = rep.iter().enumerate().find(|(i, r)| **r != *i) {
+            return Err(Error::Validation(format!("vertices {r} and {i} coincide")));
+        }
+        for (ei, edge) in self.edges.iter().enumerate() {
+            if edge.start == edge.end && !matches!(edge.curve, Curve::Circle { .. }) {
+                return Err(Error::Validation(format!("edge {ei} has zero length")));
+            }
+        }
         let mut edge_faces: HashMap<usize, Vec<usize>> = HashMap::new();
         for (fi, face) in self.faces.iter().enumerate() {
             for lp in &face.loops {

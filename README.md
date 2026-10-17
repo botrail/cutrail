@@ -9,7 +9,7 @@ A material removal simulation core for machining, written in Rust. The stock is 
 - **Robust material removal.** The stock is a mesh held by [manifold-rust](https://crates.io/crates/manifold-rust) (a pure-Rust port of Manifold). Coincident floors and walls, which every real toolpath produces, never make a cut fail. Failures are typed errors and leave the state untouched.
 - **Tools and motions.** Flat, ball and bull-nose end mills. Linear, arc and helical moves. The tool axis can point anywhere, and the axis may rotate within a segment (5-axis). Sweeps are built as convex hulls subdivided by chord tolerance.
 - **Bounded cost per cut.** The stock is tiled; only tiles overlapping the sweep are updated. After 100,000 segments the time per segment is still a few milliseconds.
-- **I/O.** Stock from boxes, cylinders, meshes (STL) or STEP. Output as STL, OBJ, glTF or 3MF. Results of 3-axis flat-end-mill machining can be exported as an analytic B-rep (planes and cylinders) in STEP.
+- **I/O.** Stock from boxes, cylinders, meshes (STL) or STEP. Output as STL, OBJ, glTF or 3MF. Results of 3-axis flat-end-mill machining (including arc moves) can be exported as an analytic B-rep (planes and cylinders) in STEP, verified as valid solids in FreeCAD and OpenCASCADE.
 - **Verification.** Comparison against a design model (volumes and regions of excess material and gouges), shank/holder collision detection, removed volume and changed bounds per cut.
 - **Integration.** A pose-stream adapter that turns sampled tool poses into segments, incremental mesh transfer of changed tiles, and WebAssembly bindings for Web Workers and Node.
 
@@ -63,12 +63,12 @@ let seg = MotionSegment::linear(
 | `Tool`, `Cutter`, `Shank`, `Holder` | Tools; the cutting part is distinguished from shank and holder |
 | `Pose`, `MotionSegment` | Tip position and axis direction, linear and arc segments, `pose_at(t)` |
 | `CutReport`, `CutOutcome`, `Collision` | Result of one cut (`NoChange` / `Updated` / `Exhausted`, removed volume, changed bounds, collision) |
-| `TriMesh` | Mesh I/O (STL in; STL, OBJ, glTF, 3MF out) and vertex merging |
+| `TriMesh` | Mesh I/O (STL and OBJ in; STL, OBJ, glTF, 3MF out) and vertex merging |
 | `StockShape` | Box, cylinder or mesh stock |
 | `step` (feature `stepio`) | Read stock and design models from STEP |
 | `Brep` | Reconstructed analytic B-rep and STEP export |
 | `DesignComparison` | Difference against a design model (excess material and gouges) |
-| `SegmentBuilder` | Coalesces sampled poses into segments by distance and angle thresholds |
+| `SegmentBuilder` | Coalesces sampled poses into segments by distance and angle thresholds and a chord-deviation bound |
 | `Kernel` | Abstraction over the geometry kernel; `ManifoldKernel` is the default |
 
 ## Accuracy and performance
@@ -76,12 +76,13 @@ let seg = MotionSegment::linear(
 - Cylindrical surfaces are polygonized to the chord tolerance `sweep_tolerance` (default 0.01 mm) using a radius whose mean width matches the diameter. The removed-volume error is about 0.3% for a 4 mm tool.
 - Rotating segments are subdivided so that the chord error of the farthest tool point stays within the tolerance.
 - Pocketing 100,000 one-millimeter segments with 10 mm tiles: the median time per segment grows from 2 ms (first 100) to 6 ms (last 100) and memory stays at 92 MB. 5-axis sweeps cost about 1.7x a 3-axis sweep; WebAssembly (Node) runs at about 1.5x the native time.
+- A 99 s robot machining cycle recorded at 100 Hz (botrail) replays in 1.8 s as 710 segments with the chord-deviation bound at 0.01 mm, within 0.04% of the removed volume of the one-segment-per-sample reference.
 - Details in [docs/accuracy-and-performance.md](docs/accuracy-and-performance.md).
 
 ## Limitations
 
 - Tools are bodies of revolution (flat, ball, bull-nose). Turning, threading and cutter compensation are out of scope.
-- Analytic B-rep export covers horizontal moves and plunges of flat end mills in 3-axis machining; other surfaces are exported as facets.
+- Analytic B-rep export covers horizontal moves, plunges and horizontal arcs of flat end mills in 3-axis machining; other surfaces are exported as facets.
 - Tolerance offsets in the design comparison use a polyhedral sphere, so very small tolerances need finer settings.
 - `SegmentBuilder` only emits linear segments; pass arcs explicitly as `MotionSegment::arc`.
 
@@ -99,6 +100,9 @@ cargo test --release                      # unit and integration tests
 cargo test --release --features stepio    # including STEP import
 cargo run --release --example slot -- out.stl
 cargo run --release --example bench -- 10000 10 1 0 0 flat   # segments tile batch simplify tilt tool
+cargo run --release --example step_export -- out/            # sample shapes as STEP and STL
+cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --tile 20   # replay a recorded pose stream
+cargo run --release --example compare_meshes -- a.stl b.stl  # excess and gouge volume between two meshes
 wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node && node cutrail-wasm/test/node_test.cjs 1000 10 20
 ```
 

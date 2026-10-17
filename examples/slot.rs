@@ -1,4 +1,4 @@
-//! 最小の利用例：素材にポケットの 3 パスと穴を加工して STL に書き出す。
+//! Minimal example: three pocket passes and a hole, written to STL.
 //!
 //! ```sh
 //! cargo run --release --example slot -- out.stl

@@ -1,4 +1,6 @@
-//! タイル分割モードと区間のまとめ処理の検証。部品単位モードと同じ体積になること。
+//! Tiled mode and batching: the volumes must match part mode.
+mod common;
+use common::{assert_close};
 use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
 use std::f64::consts::PI;
 
@@ -12,16 +14,12 @@ fn engine(tile: Option<f64>) -> Engine {
     Engine::new(ManifoldKernel, &[stock], options).unwrap()
 }
 
-fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
-    let err = ((actual - expected) / expected).abs();
-    assert!(err <= rel, "{what}: actual {actual} expected {expected} rel.err {err}");
-}
 
 #[test]
 fn tiled_stock_has_expected_tiles_and_volume() {
     let e = engine(Some(4.0));
     assert!(e.is_tiled());
-    assert_eq!(e.parts().len(), 27); // 3x3x3（最後の列は 2 mm 幅）
+    assert_eq!(e.parts().len(), 27); // 3x3x3 (the last column is 2 mm wide)
     assert_close(e.total_volume(), 1000.0, 1e-9, "tiled stock volume");
 }
 
@@ -36,7 +34,7 @@ fn tiled_slot_matches_whole() {
     assert_eq!(rt.outcome, CutOutcome::Updated);
     assert_close(tiled.total_volume(), whole.total_volume(), 1e-9, "remaining volume");
     assert_close(rt.removed_volume, rw.removed_volume, 1e-9, "removed volume");
-    // x: タイル [0,4] と [4,8]、y: 3 列、z: [4,8] と [8,10] の 2 段 → 2*3*2
+    // x: tiles [0,4] and [4,8]; y: 3 columns; z: the two layers [4,8] and [8,10], so 2*3*2
     assert_eq!(rt.cells_touched, 12);
     assert_eq!(tiled.parts().len(), 27, "tiles are kept even when partly cut");
 }
@@ -45,10 +43,10 @@ fn tiled_slot_matches_whole() {
 fn tiled_plunge_only_touches_overlapping_tiles() {
     let mut e = engine(Some(4.0));
     let tool = Tool::flat_end_mill(2.0, 6.0);
-    // 穴 r=1 を (2,2) に。x,y とも最初のタイル内に収まる
+    // A hole of r=1 at (2,2): inside the first tile in both x and y
     let r = e.cut(&tool, &MotionSegment::linear(v([2.0, 2.0, 10.0]), v([2.0, 2.0, 6.0]))).unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated);
-    assert_eq!(r.cells_touched, 2, "z 方向に 2 タイル（z 4..8 と 8..10）");
+    assert_eq!(r.cells_touched, 2, "two tiles along z (z 4..8 and 8..10)");
     assert_close(e.total_volume(), 1000.0 - PI * 4.0, 5e-3, "remaining volume");
     let changed = e.changed_since(0);
     assert_eq!(changed.len(), 2);
@@ -68,13 +66,13 @@ fn tiled_exhausted_when_everything_is_cut() {
 #[test]
 fn tiled_partial_exhaustion_removes_tiles() {
     let mut e = engine(Some(5.0));
-    // z∈[5,10] の上半分を丸ごと除去する大きな工具
+    // A tool big enough to remove the whole upper half z∈[5,10]
     let tool = Tool::flat_end_mill(40.0, 10.0);
     let r = e.cut(&tool, &MotionSegment::linear(v([5.0, 5.0, 5.0]), v([5.0, 5.0, 5.0]))).unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated);
     assert_eq!(e.parts().len(), 4, "upper 4 tiles removed, lower 4 remain");
     assert_close(e.total_volume(), 500.0, 1e-9, "remaining volume");
-    // 消えたタイルに再度切削しても NoChange
+    // Cutting an exhausted tile again is NoChange
     let r2 = e.cut(&tool, &MotionSegment::linear(v([5.0, 5.0, 6.0]), v([5.0, 5.0, 6.0]))).unwrap();
     assert_eq!(r2.outcome, CutOutcome::NoChange);
 }
@@ -95,7 +93,7 @@ fn batch_equals_sequential() {
     assert_eq!(seq.revision(), 6);
     assert_close(batch.total_volume(), seq.total_volume(), 1e-6, "remaining volume");
     assert_close(rb.removed_volume, total_removed, 1e-6, "removed volume");
-    // まとめ処理は三角形数を減らすとは限らない（和集合の交線が増える）。体積の一致だけを確認する
+    // Batching does not necessarily reduce triangles (the union adds intersection edges); only the volume is checked
 }
 
 #[test]
@@ -144,8 +142,8 @@ fn simplify_option_keeps_volume() {
 fn tiled_cylinder_stock_volume_matches() {
     let stock = StockShape::Cylinder { center: [5.0, 5.0], radius: 5.0, z0: 0.0, z1: 10.0 };
     let e = Engine::new(ManifoldKernel, &[stock], EngineOptions::default().with_tile_size(4.0)).unwrap();
-    // タイル境界での交差でカーネルが微小な辺を併合するため、1e-5 程度の差が出る
+    // Intersections at tile boundaries make the kernel merge tiny edges, which shifts the volume by about 1e-5
     assert_close(e.total_volume(), PI * 25.0 * 10.0, 1e-4, "tiled cylinder volume");
-    // 半径 5 の円は 10x10 の角をわずかに残すだけなので、4 mm タイルはすべて円柱と交差する
+    // A circle of radius 5 leaves only the corners of the 10x10 square, so every 4 mm tile intersects the cylinder
     assert_eq!(e.parts().len(), 27);
 }

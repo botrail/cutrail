@@ -1,5 +1,5 @@
-// Node での動作確認：1,000 区間のジグザグ（±20° の傾きあり）を実行し、時間と体積を表示する。
-// 事前に `wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node` を実行する。
+// Node smoke test: runs a 1,000-segment zigzag (with a ±20° tilt) and prints time and volumes.
+// Run `wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node` first.
 const path = require("node:path");
 const { WasmEngine } = require(path.join(__dirname, "..", "pkg-node", "cutrail_wasm.js"));
 

@@ -1,22 +1,10 @@
-//! メッシュ入出力、メッシュ素材、設計モデルとの比較、姿勢ストリーム。
-use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, SegmentBuilder, StockShape, Tool, TriMesh};
+//! Mesh formats (STL, OBJ, glTF, 3MF) and mesh stock.
+mod common;
+use common::{assert_close, cube10, slotted_cube};
+use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool, TriMesh};
 use std::io::Cursor;
 
-fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
-    let err = ((actual - expected) / expected).abs();
-    assert!(err <= rel, "{what}: actual {actual} expected {expected} rel.err {err}");
-}
-
-fn slotted_cube(tool_diameter: f64, tip_z: f64) -> Engine {
-    let stock = StockShape::Box { min: [0.0; 3], max: [10.0; 3] };
-    let mut e = Engine::new(ManifoldKernel, &[stock], EngineOptions::default()).unwrap();
-    let tool = Tool::flat_end_mill(tool_diameter, 10.0);
-    let r = e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, -5.0, tip_z]), Pose::vertical([5.0, 15.0, tip_z]))).unwrap();
-    assert_eq!(r.outcome, CutOutcome::Updated);
-    e
-}
-
-/// 頂点を面ごとに持つ（STL 風の）立方体メッシュ。
+/// A cube mesh with one set of vertices per face, as an STL file would store it.
 fn cube_mesh_with_duplicates(size: f64) -> TriMesh {
     let faces: [[[f64; 3]; 4]; 6] = [
         [[0.0, 0.0, 0.0], [0.0, size, 0.0], [size, size, 0.0], [size, 0.0, 0.0]], // bottom (-z)
@@ -47,7 +35,7 @@ fn stl_round_trip_and_merge() {
     let merged = mesh.merge_vertices(1e-6);
     assert!(merged > 0 && mesh.positions.len() < before);
     assert_close(mesh.signed_volume(), 840.0, 1e-3, "volume of merged STL mesh");
-    // 併合したメッシュを素材として取り込む
+    // The merged mesh can be used as stock
     let e2 = Engine::new(ManifoldKernel, &[StockShape::Mesh(mesh)], EngineOptions::default()).unwrap();
     assert_close(e2.total_volume(), 840.0, 1e-3, "mesh stock volume");
 }
@@ -93,7 +81,7 @@ fn obj_glb_3mf_outputs_are_well_formed() {
 #[test]
 fn write_mesh_file_dispatches_on_extension() {
     let e = slotted_cube(4.0, 6.0);
-    let dir = std::env::temp_dir().join(format!("cutrail-m5-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("cutrail-mesh-io-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for ext in ["stl", "obj", "glb", "3mf"] {
         let path = dir.join(format!("out.{ext}"));
@@ -125,47 +113,16 @@ fn open_mesh_stock_is_rejected() {
 }
 
 #[test]
-fn compare_with_design_reports_excess_and_gouge() {
-    // 設計：幅 4、深さ 4 の貫通溝（体積 840）
-    let design = slotted_cube(4.0, 6.0).combined_mesh();
-    // 加工 A：深さ 2 しか削っていない → 削り残し 4*10*2 = 80
-    let a = slotted_cube(4.0, 8.0);
-    let ca = a.compare_with_design(&design, 0.0).unwrap();
-    assert_close(ca.excess_volume, 80.0, 2e-2, "excess of shallow cut");
-    assert!(ca.gouge_volume < 0.5, "gouge {}", ca.gouge_volume);
-    assert!(ca.excess_bounds.is_some() && ca.excess.triangle_count() > 0);
-    // 加工 B：幅 6 で削った → 削りすぎ 2*10*4 = 80
-    let b = slotted_cube(6.0, 6.0);
-    let cb = b.compare_with_design(&design, 0.0).unwrap();
-    assert_close(cb.gouge_volume, 80.0, 2e-2, "gouge of wide cut");
-    assert!(cb.excess_volume < 0.5, "excess {}", cb.excess_volume);
-    // 公差 0.5：設計を 0.5 膨らませると溝は x 3.5..6.5、底 z 6.5 になるので、A の削り残しは 3*1.5*10 = 45 に減る
-    let ca_tol = a.compare_with_design(&design, 0.5).unwrap();
-    assert!(ca_tol.excess_volume < ca.excess_volume, "{} vs {}", ca_tol.excess_volume, ca.excess_volume);
-    assert_close(ca_tol.excess_volume, 45.0, 5e-2, "excess beyond tolerance");
-    // 一致していれば両方ゼロ
-    let same = slotted_cube(4.0, 6.0).compare_with_design(&design, 0.0).unwrap();
-    assert!(same.is_within_tolerance(), "{:?}", (same.excess_volume, same.gouge_volume));
-}
-
-#[test]
-fn segment_builder_coalesces_small_moves() {
-    let mut b = SegmentBuilder::new(1.0, 5.0);
-    let mut emitted = Vec::new();
-    for i in 0..=55 {
-        let x = 0.1 * i as f64; // 0.0 〜 5.5 mm
-        if let Some(seg) = b.push(Pose::vertical([x, 0.0, 0.0])) {
-            emitted.push(seg);
-        }
-    }
-    assert_eq!(emitted.len(), 5, "1 mm ごとに区間が出る");
-    let tail = b.flush().expect("remaining 0.5 mm");
-    let (from, to) = tail.endpoints();
-    assert_close(to.tip[0] - from.tip[0], 0.5, 1e-9, "flushed length");
-    assert!(b.flush().is_none());
-    // 回転だけでも角度のしきい値で区間が出る
-    let mut r = SegmentBuilder::new(1.0, 5.0);
-    assert!(r.push(Pose::vertical([0.0; 3])).is_none());
-    assert!(r.push(Pose::tilted_about_y([0.0; 3], 3.0)).is_none());
-    assert!(r.push(Pose::tilted_about_y([0.0; 3], 6.0)).is_some());
+fn obj_round_trip_keeps_vertices_and_precision() {
+    let mut e = cube10(EngineOptions::default());
+    e.cut(&Tool::flat_end_mill(3.0, 6.0), &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0]))).unwrap();
+    let mesh = e.combined_mesh();
+    let mut buf = Vec::new();
+    mesh.write_obj(&mut buf).unwrap();
+    let back = TriMesh::read_obj(Cursor::new(buf)).unwrap();
+    assert_eq!(back.positions, mesh.positions);
+    assert_eq!(back.triangles, mesh.triangles);
+    let quad = "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1/1/1 2/2/2 3/3/3 4/4/4\nf -4 -1 -2\n";
+    let m = TriMesh::read_obj(Cursor::new(quad.as_bytes())).unwrap();
+    assert_eq!(m.triangles, vec![[0, 1, 2], [0, 2, 3], [0, 3, 2]]);
 }

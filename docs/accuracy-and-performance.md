@@ -61,3 +61,30 @@ Removed and remaining volumes are identical to native. The wasm binary is 1.1 MB
 ## Triangle growth
 
 Every cut adds the geometry of a new wall (the scallop of one step), so the triangle count grows with the actual machined surface, roughly 84 triangles per cylinder. Tiling bounds the size of each boolean, and tiles that end up entirely inside a pocket disappear.
+
+## Recorded robot path (pose stream)
+
+The machining demo of [botrail](https://github.com/botrail/botrail), a 6-axis robot carrying a spindle over a 180×120×12 mm plate (a rounded-rectangle trim, a zigzag pocket and a 5-axis rim chamfer, 99 s cycle), was baked and its tool-tip poses sampled in the plate frame at 100 Hz and 1 kHz (9,916 and 99,151 poses, Ø8 flat end mill). `examples/pose_stream.rs` replays the stream through `SegmentBuilder` and the engine. The reference is the stream cut one segment per sample (9,565 segments, 167 s, 682k triangles); excess and gouge are the volumes by which a run differs from it (material left, material removed beyond it), out of 10,825 mm³ removed. botrail's own voxel carve of the same bake removes 10,827 mm³ at 0.25 mm voxels.
+
+| Setting (20 mm tiles) | Segments | Total [s] | p50 / p90 [ms] | Triangles | Excess / gouge [mm³] |
+|---|---|---|---|---|---|
+| distance 0.25 mm, 2° | 4,323 | 33.7 | 6.8 / 15.4 | 310k | 1.2 / 1.2 |
+| distance 0.5 mm, 2° | 2,338 | 10.3 | 4.1 / 8.4 | 160k | 5.7 / 2.4 |
+| distance 1 mm, 2° | 1,422 | 4.1 | 2.8 / 5.4 | 87k | 19.8 / 3.8 |
+| distance 2 mm, 2° | 772 | 1.8 | 2.2 / 4.1 | 48k | 56.9 / 9.6 |
+| distance 4 mm, 2° | 427 | 1.0 | 2.1 / 4.4 | 31k | 167.0 / 21.8 |
+| deviation 0.005 mm (cap 5 mm, 2°) | 938 | 2.5 | 2.7 / 4.6 | 44k | 1.2 / 2.6 |
+| deviation 0.01 mm | 710 | 1.8 | 2.4 / 4.5 | 38k | 2.6 / 3.9 |
+| deviation 0.02 mm | 582 | 1.5 | 2.5 / 4.6 | 35k | 5.4 / 5.8 |
+| deviation 0.05 mm | 474 | 1.2 | 2.2 / 4.4 | 31k | 11.4 / 11.5 |
+| deviation 0.01 mm, angle 0.5° | 848 | 3.6 | 2.8 / 13.5 | 47k | 2.5 / 2.2 |
+| deviation 0.01 mm, angle 5° | 684 | 1.8 | 2.4 / 4.0 | 37k | 2.6 / 4.3 |
+| deviation 0.01 mm, from the 1 kHz stream | 699 | 1.7 | 2.2 / 4.1 | 38k | 3.0 / 3.9 |
+
+- A distance threshold alone trades accuracy for segments badly: the chords cut corners, and 1 mm already leaves 20 mm³ of excess. The deviation bound reaches the accuracy of the 0.25 mm threshold with a quarter of the segments and a thirteenth of the time.
+- The angle threshold only matters for the 5-axis chamfer; 2° is enough, and 0.5° adds segments without accuracy.
+- The pose rate does not matter: the 1 kHz stream gives the same segments at the same cost.
+- Tile size (deviation 0.01 mm): 10 mm 2.1 s (432 tiles, 55k triangles), 15 mm 2.4 s, 20 mm 1.8 s, 30 mm 1.9 s, 40 mm 2.0 s, no tiling 9.0 s (p50 15.5 ms). The result is identical for every tile size; for an 8 mm tool, 2 to 4 tool diameters is the flat region.
+- `cut_batch` with 4 or 16 segments per call saves under 10% here.
+
+Recommended for a robot pose stream: `SegmentBuilder::new(5.0, 2.0).with_max_deviation(0.01)` and tiles of 2 to 4 tool diameters. The 99 s cycle then replays in 1.8 s (2.5 ms per segment). The recorded path itself deviates from the programmed one (the plunge overshoots by 0.5 mm and the trim floor drifts by 0.1 mm); the replay reproduces the recorded motion, not the program.

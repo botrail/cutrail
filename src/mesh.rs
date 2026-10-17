@@ -167,6 +167,62 @@ impl TriMesh {
         TriMesh::read_stl(io::BufReader::new(std::fs::File::open(path)?))
     }
 
+    /// Reads Wavefront OBJ (`v` and `f` records; polygons are fan-triangulated). Vertices are shared as in the file,
+    /// and positions keep their full precision, unlike STL.
+    pub fn read_obj<R: io::BufRead>(r: R) -> io::Result<TriMesh> {
+        let bad = |line: usize, what: &str| io::Error::new(io::ErrorKind::InvalidData, format!("OBJ line {line}: {what}"));
+        let mut mesh = TriMesh::default();
+        for (n, line) in r.lines().enumerate() {
+            let line = line?;
+            let mut it = line.split_whitespace();
+            match it.next() {
+                Some("v") => {
+                    let mut p = [0.0; 3];
+                    for v in &mut p {
+                        *v = it.next().and_then(|s| s.parse().ok()).ok_or_else(|| bad(n + 1, "vertex needs three numbers"))?;
+                    }
+                    mesh.positions.push(p);
+                }
+                Some("f") => {
+                    let count = mesh.positions.len() as i64;
+                    let corners: Vec<u32> = it
+                        .map(|tok| {
+                            let i: i64 = tok.split('/').next().unwrap_or("").parse().map_err(|_| bad(n + 1, "face index"))?;
+                            let i = if i < 0 { count + i } else { i - 1 };
+                            if i < 0 || i >= count {
+                                return Err(bad(n + 1, "face index out of range"));
+                            }
+                            Ok(i as u32)
+                        })
+                        .collect::<io::Result<_>>()?;
+                    if corners.len() < 3 {
+                        return Err(bad(n + 1, "face needs three corners"));
+                    }
+                    for k in 1..corners.len() - 1 {
+                        mesh.triangles.push([corners[0], corners[k], corners[k + 1]]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(mesh)
+    }
+
+    /// Reads an OBJ file.
+    pub fn read_obj_file<P: AsRef<std::path::Path>>(path: P) -> io::Result<TriMesh> {
+        Self::read_obj(io::BufReader::new(std::fs::File::open(path)?))
+    }
+
+    /// Reads a file in the format given by its extension (stl / obj).
+    pub fn read_file<P: AsRef<std::path::Path>>(path: P) -> io::Result<TriMesh> {
+        let path = path.as_ref();
+        match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+            Some("stl") => Self::read_stl_file(path),
+            Some("obj") => Self::read_obj_file(path),
+            other => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unsupported mesh extension {other:?} (stl, obj)"))),
+        }
+    }
+
     /// Writes Wavefront OBJ.
     pub fn write_obj<W: Write>(&self, mut w: W) -> io::Result<()> {
         writeln!(w, "# cutrail")?;

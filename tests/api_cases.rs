@@ -1,4 +1,6 @@
-//! 基本的な切削ケース：非交差、溝、穴、分割、全量除去、共面、内部空洞、連続切削。
+//! Basic cutting cases: no contact, slots, holes, splits, full removal, coplanar faces, internal voids, sequences.
+mod common;
+use common::{assert_close};
 use cutrail::{CutOutcome, Engine, EngineOptions, Error, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
 use std::f64::consts::PI;
 
@@ -11,10 +13,6 @@ fn v(p: [f64; 3]) -> Pose {
     Pose::vertical(p)
 }
 
-fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
-    let err = ((actual - expected) / expected).abs();
-    assert!(err <= rel, "{what}: actual {actual} expected {expected} rel.err {err}");
-}
 
 #[test]
 fn disjoint_is_no_change() {
@@ -28,7 +26,7 @@ fn disjoint_is_no_change() {
 
 #[test]
 fn slot_matches_analytic() {
-    // 幅 4、深さ 4 の溝を y 方向に貫通させる：除去 4*10*4 = 160
+    // A slot 4 wide and 4 deep through the cube along y: removes 4*10*4 = 160
     let mut e = cube10();
     let tool = Tool::flat_end_mill(4.0, 6.0);
     let r = e.cut(&tool, &MotionSegment::linear(v([5.0, -3.0, 6.0]), v([5.0, 13.0, 6.0]))).unwrap();
@@ -41,7 +39,7 @@ fn slot_matches_analytic() {
 
 #[test]
 fn plunge_hole_matches_analytic() {
-    // 半径 2、深さ 4 の止まり穴：除去 16π
+    // A blind hole of radius 2 and depth 4: removes 16π
     let mut e = cube10();
     let tool = Tool::flat_end_mill(4.0, 6.0);
     let r = e.cut(&tool, &MotionSegment::linear(v([5.0, 5.0, 10.0]), v([5.0, 5.0, 6.0]))).unwrap();
@@ -87,7 +85,7 @@ fn same_segment_twice_is_no_change() {
 
 #[test]
 fn adjacent_same_depth_slots_succeed() {
-    // 溝 A は x∈[2,6]、溝 B は x∈[5,9]。底面 z=6 が共面で重なる。和の幅は 7
+    // Slot A spans x∈[2,6] and slot B x∈[5,9]; their floors at z=6 are coplanar. The union is 7 wide
     let mut e = cube10();
     let tool = Tool::flat_end_mill(4.0, 6.0);
     let a = e.cut(&tool, &MotionSegment::linear(v([4.0, -3.0, 6.0]), v([4.0, 13.0, 6.0]))).unwrap();
@@ -100,7 +98,7 @@ fn adjacent_same_depth_slots_succeed() {
 
 #[test]
 fn internal_cut_keeps_single_part_with_void() {
-    // 刃長 2 の工具を素材内部に置く（物理的にはあり得ないが空洞の扱いを確認する）
+    // A tool with a 2 mm flute placed inside the stock (physically impossible, but it exercises the handling of voids)
     let mut e = cube10();
     let tool = Tool::flat_end_mill(4.0, 2.0);
     let r = e.cut(&tool, &MotionSegment::linear(v([5.0, 5.0, 4.0]), v([5.0, 5.0, 4.0]))).unwrap();
@@ -111,7 +109,7 @@ fn internal_cut_keeps_single_part_with_void() {
 
 #[test]
 fn hundred_step_slot_sequence() {
-    // 1 mm ずつ 100 回送る（x=3 から x=103）。和は直線部 100 mm の長円、深さ 3
+    // 100 feeds of 1 mm (x=3 to x=103); the union is a stadium with a 100 mm straight part, 3 deep
     let stock = StockShape::Box { min: [0.0; 3], max: [110.0, 10.0, 10.0] };
     let mut e = Engine::new(ManifoldKernel, &[stock], EngineOptions::default()).unwrap();
     let tool = Tool::flat_end_mill(4.0, 6.0);

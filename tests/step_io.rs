@@ -1,13 +1,11 @@
-//! STEP 素材の読込（feature `stepio`）。truck で書いた STEP を読み戻して体積を確認する。
+//! Reading stock from STEP (feature `stepio`): STEP written by truck is read back and the volume checked.
 #![cfg(feature = "stepio")]
+mod common;
+use common::{assert_close};
 use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, Tool};
 use truck_modeling::*;
 use truck_stepio::out::{CompleteStepDisplay, StepHeaderDescriptor, StepModel};
 
-fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
-    let err = ((actual - expected) / expected).abs();
-    assert!(err <= rel, "{what}: actual {actual} expected {expected} rel.err {err}");
-}
 
 fn step_of(solid: &Solid) -> String {
     let compressed = solid.compress();

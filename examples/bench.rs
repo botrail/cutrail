@@ -1,10 +1,10 @@
-//! ベンチマーク：ジグザグのポケット加工を多数の短い区間で実行し、1 回あたりの時間が履歴で増えないかを見る。
+//! Benchmark: pockets with a zigzag of many short segments and checks that the time per cut does not grow with history.
 //!
 //! ```sh
 //! cargo run --release --example bench -- <segments> <tile_size|0> <batch> <simplify_threshold|0> <tilt_deg|0> <flat|ball>
 //! ```
 //!
-//! `tilt_deg` を指定すると、工具軸を Y 軸回りに ±tilt_deg の正弦（周期 40 区間）で変えながら送る（5 軸相当）。
+//! With `tilt_deg`, the tool axis follows a ±tilt_deg sine about the Y axis (period 40 segments), i.e. 5-axis.
 use cutrail::{Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
 use std::time::{Duration, Instant};
 
@@ -12,8 +12,8 @@ fn arg<T: std::str::FromStr>(i: usize, default: T) -> T {
     std::env::args().nth(i).and_then(|s| s.parse().ok()).unwrap_or(default)
 }
 
-/// 素材 200x100x20 に、x 方向のジグザグを 1 mm 区間で刻む。行ピッチ 2 mm、深さは 1.5 mm ずつ下げる。
-/// `tilt` が 0 でなければ、区間の通し番号に応じて軸を Y 軸回りに傾ける。
+/// A zigzag along x in 1 mm segments over a 200x100x20 stock: 2 mm row pitch, stepping down 1.5 mm per level.
+/// With a non-zero `tilt`, the axis is tilted about Y according to the segment index.
 fn zigzag(n: usize, tilt: f64) -> Vec<MotionSegment> {
     let mut out = Vec::with_capacity(n);
     let pose = |p: [f64; 3], k: usize| {
@@ -117,9 +117,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         n,
         tool_kind,
         if tilt != 0.0 { format!("±{tilt}°") } else { "0".into() },
-        if tile > 0.0 { format!("{tile}") } else { "なし".into() },
+        if tile > 0.0 { format!("{tile}") } else { "none".into() },
         batch,
-        if simplify > 0 { format!("{simplify}") } else { "なし".into() },
+        if simplify > 0 { format!("{simplify}") } else { "none".into() },
         times.len(),
         setup_ms,
         total.as_secs_f64(),

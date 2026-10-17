@@ -103,7 +103,8 @@ In tiled mode `PartId` is the tile index and exhausted tiles disappear from `par
 engine.write_stl(std::fs::File::create("out.stl")?)?;
 engine.write_mesh_file("out.obj")?;   // stl / obj / glb / 3mf by extension
 engine.write_step(std::fs::File::create("out.step")?, "machined")?;   // analytic B-rep (brep-export.md)
-let mesh = engine.combined_mesh();    // TriMesh
+let mesh = engine.combined_mesh();    // TriMesh: all cells concatenated (display)
+let solid = engine.merged_mesh()?;    // TriMesh: tiles united into one closed solid (export, comparison)
 ```
 
 ## Loading stock
@@ -151,7 +152,8 @@ Turns poses sampled at a physics or render rate into segments:
 
 ```rust
 use cutrail::SegmentBuilder;
-let mut builder = SegmentBuilder::new(0.5, 2.0);   // emit after 0.5 mm or 2° of motion
+let mut builder = SegmentBuilder::new(5.0, 2.0)   // cap segments at 5 mm of travel or 2° of axis rotation
+    .with_max_deviation(0.01);                    // break them wherever the path leaves the chord by 0.01 mm
 for pose in poses {
     if let Some(seg) = builder.push(pose) {
         engine.cut(&tool, &seg)?;
@@ -160,6 +162,14 @@ for pose in poses {
 if let Some(seg) = builder.flush() {
     engine.cut(&tool, &seg)?;
 }
+```
+
+With only the distance threshold the builder chords across corners: a 1 mm threshold can cut a 90° corner by up to 0.5 mm. With `with_max_deviation` every skipped sample stays within the bound of the emitted chord, so corners break exactly at the corner sample and arcs are chorded to the tolerance, while `min_distance` only caps the segment length. On a recorded robot path (99 s cycle sampled at 100 Hz, about 9,900 poses) a bound of 0.01 mm with a 5 mm cap and 2° gives about 700 segments, within 0.02 mm of the reference cut at every sample, and the same segments from the 1 kHz stream. Measurements are in [accuracy-and-performance.md](accuracy-and-performance.md).
+
+`examples/pose_stream.rs` replays such a stream from a CSV file (`t,x,y,z,ax,ay,az` per row in the stock frame, plus `# stock_box` and `# tool` header lines) with any thresholds and tile size, and reports time, segment count and the deviation from a reference mesh:
+
+```sh
+cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --tile 20 --out out.obj
 ```
 
 ## WebAssembly

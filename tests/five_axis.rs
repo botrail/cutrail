@@ -1,14 +1,12 @@
-//! 任意の工具軸と、区間内で軸が回る移動（5 軸）の検証。期待体積は格子サンプリングで求める。
+//! Arbitrary tool axes and segments whose axis rotates (5-axis); expected volumes come from grid sampling.
+mod common;
+use common::{assert_close};
 use cutrail::sweep::{rotation_steps, swept_volume};
 use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
 use std::f64::consts::PI;
 
-fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
-    let err = ((actual - expected) / expected).abs();
-    assert!(err <= rel, "{what}: actual {actual} expected {expected} rel.err {err}");
-}
 
-/// 点が姿勢 `pose` の工具（平底円柱）の内部にあるか。
+/// Whether point `p` lies inside the tool (a flat-bottomed cylinder) at `pose`.
 fn inside(tool: &Tool, pose: &Pose, p: [f64; 3]) -> bool {
     let a = pose.axis;
     let d = [p[0] - pose.tip[0], p[1] - pose.tip[1], p[2] - pose.tip[2]];
@@ -20,14 +18,14 @@ fn inside(tool: &Tool, pose: &Pose, p: [f64; 3]) -> bool {
     r2 <= tool.radius() * tool.radius()
 }
 
-/// 直方体素材 [min,max] の中で、区間列の掃引（サブステップ `sub` で補間）に覆われる体積を格子で推定する。
+/// Grid estimate of the volume inside the box [min,max] covered by the sweep of `segments`, interpolating `sub` sub-steps per segment.
 fn grid_removed(min: [f64; 3], max: [f64; 3], tool: &Tool, segments: &[MotionSegment], sub: usize, spacing: f64) -> f64 {
     let n = [
         ((max[0] - min[0]) / spacing).ceil() as usize,
         ((max[1] - min[1]) / spacing).ceil() as usize,
         ((max[2] - min[2]) / spacing).ceil() as usize,
     ];
-    // 区間ごとに補間した姿勢列と AABB を前計算する
+    // Precompute the interpolated poses and the AABB of each segment
     let reach = (tool.flute_length().powi(2) + tool.radius().powi(2)).sqrt();
     let items: Vec<(Vec<Pose>, [f64; 3], [f64; 3])> = segments
         .iter()
@@ -74,7 +72,7 @@ fn cube10(tile: Option<f64>) -> Engine {
 #[test]
 fn rotation_steps_follow_chord_tolerance() {
     assert_eq!(rotation_steps(0.0, 10.0, 0.01), 1);
-    // 20° の回転、到達距離 10.2、弦誤差 0.01 → 1 ステップ 5.08° → 4 ステップ
+    // A 20° rotation with reach 10.2 and chord tolerance 0.01: 5.08° per step, so 4 steps
     assert_eq!(rotation_steps(20f64.to_radians(), 10.2, 0.01), 4);
     assert!(rotation_steps(PI / 2.0, 100.0, 1e-6) <= 256);
 }
@@ -90,7 +88,7 @@ fn fixed_tilt_translation_is_a_single_hull() {
 
 #[test]
 fn tilted_through_hole_matches_analytic() {
-    // 30° 傾けた半径 1.5 の工具を軸方向に送って貫通：除去 πr²·10/cos30°
+    // A radius-1.5 tool tilted 30° fed along its axis through the stock: removes πr²·10/cos30°
     let mut e = cube10(None);
     let tool = Tool::flat_end_mill(3.0, 10.0);
     let a = Pose::tilted_about_y([5.0 - 10.0 * 30f64.to_radians().sin(), 5.0, 5.0 - 10.0 * 30f64.to_radians().cos()], 30.0);
@@ -103,7 +101,7 @@ fn tilted_through_hole_matches_analytic() {
 
 #[test]
 fn rotation_about_tip_matches_grid() {
-    // 先端を (5,5,6) に固定し、軸を +Z から 40° まで回す。掃引体積は格子サンプリングと比較する
+    // Tip fixed at (5,5,6) while the axis rotates from +Z to 40°; the swept volume is compared with grid sampling
     let mut e = cube10(None);
     let tool = Tool::flat_end_mill(4.0, 8.0);
     let a = Pose::vertical([5.0, 5.0, 6.0]);
@@ -134,9 +132,9 @@ fn rotation_with_translation_matches_grid_in_whole_and_tiled_modes() {
 
 #[test]
 fn tilted_sweep_sequence_like_p0b() {
-    // 先端を 1 mm ずつ送りながら傾きを ±20° の正弦で変える（200 区間、区間ごとに姿勢が変わる）
+    // Feed the tip 1 mm at a time while the tilt follows a ±20° sine (200 segments, each with a different pose)
     let n = 200;
-    let len = n as f64 + 10.0; // 先端は x = 3..203 まで進むので素材はそれより長くする
+    let len = n as f64 + 10.0; // the tip travels x = 3..203, so the stock must be longer
     let stock = StockShape::Box { min: [0.0; 3], max: [len, 10.0, 10.0] };
     let tool = Tool::flat_end_mill(4.0, 10.0);
     let pose = |i: usize| Pose::tilted_about_y([3.0 + i as f64, 5.0, 7.0], 20.0 * (2.0 * PI * i as f64 / 40.0).sin());

@@ -1,5 +1,5 @@
-// Web Worker：メインスレッドから区間をまとめて受け取り、変更されたタイルのメッシュだけを返す。
-// 事前に `wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg` を実行する。
+// Web Worker: receives batches of segments from the main thread and returns only the meshes of changed tiles.
+// Run `wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg` first.
 import init, { WasmEngine } from "./pkg/cutrail_wasm.js";
 
 let engine = null;

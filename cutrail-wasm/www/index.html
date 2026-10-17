@@ -3,7 +3,7 @@
 <title>cutrail worker demo</title>
 <pre id="log"></pre>
 <script type="module">
-  // 使い方：wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg → このディレクトリを静的配信する
+  // Usage: wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg, then serve this directory statically
   const log = (s) => (document.getElementById("log").textContent += s + "\n");
   const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   worker.onmessage = (ev) => {

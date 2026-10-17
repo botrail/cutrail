@@ -1,17 +1,9 @@
-//! 解析面の復元と STEP 出力。
+//! Analytic surface reconstruction and STEP export.
+mod common;
+#[allow(unused_imports)]
+use common::{assert_close, cube10};
 use cutrail::brep::{Curve, Surface};
 use cutrail::{Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
-
-fn cube10(options: EngineOptions) -> Engine {
-    let stock = StockShape::Box { min: [0.0; 3], max: [10.0; 3] };
-    Engine::new(ManifoldKernel, &[stock], options).unwrap()
-}
-
-#[allow(dead_code)]
-fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
-    let err = ((actual - expected) / expected).abs();
-    assert!(err <= rel, "{what}: actual {actual} expected {expected} rel.err {err}");
-}
 
 #[test]
 fn through_slot_is_all_planes_and_lines() {
@@ -25,7 +17,7 @@ fn through_slot_is_all_planes_and_lines() {
     assert_eq!((circles, polylines), (0, 0));
     assert_eq!(lines, b.edges.len());
     assert!(b.faces.iter().all(|f| f.loops.len() == 1), "no inner loops expected");
-    // 壁の面は経路から正確に半径 2 の位置
+    // The wall planes sit exactly at radius 2 from the path
     let walls: Vec<_> = b
         .faces
         .iter()
@@ -159,7 +151,7 @@ fn step_text_has_expected_entities() {
 #[cfg(feature = "stepio")]
 #[test]
 fn step_reads_back_with_matching_volume() {
-    // 長円の溝（Ø3、キャップは素材内）と、溝に接しない止まり穴（Ø2）
+    // A stadium slot (Ø3, its ends inside the stock) and a blind hole (Ø2) that does not touch it
     let mut e = cube10(EngineOptions::default());
     let slot_tool = Tool::flat_end_mill(3.0, 6.0);
     let hole_tool = Tool::flat_end_mill(2.0, 6.0);
@@ -178,4 +170,63 @@ fn step_reads_back_with_matching_volume() {
     assert_close(mesh.signed_volume().abs(), e.total_volume(), 1e-2, "volume of STEP read back");
     let stock = Engine::new(ManifoldKernel, &[StockShape::Mesh(mesh)], EngineOptions::default()).unwrap();
     assert_close(stock.total_volume(), e.total_volume(), 1e-2, "STEP mesh is a closed manifold");
+}
+
+#[test]
+fn tangent_walls_meet_end_cylinders_on_a_line() {
+    // The walls of a slot are tangent to its end cylinders: the shared edges must come out as exact vertical lines.
+    let mut e = cube10(EngineOptions::default());
+    e.cut(&Tool::flat_end_mill(3.0, 6.0), &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0]))).unwrap();
+    let b = e.reconstruct_brep().unwrap();
+    b.check(1e-9).unwrap();
+    assert_eq!(b.curve_counts().2, 0, "no polyline fallback on tangent edges");
+}
+
+#[test]
+fn tiled_zigzag_pocket_is_consistent() {
+    // Rows that overlap and connecting moves whose walls are tangent to the row ends, across tile seams.
+    let mut e = Engine::new(
+        ManifoldKernel,
+        &[StockShape::Box { min: [0.0; 3], max: [30.0, 30.0, 10.0] }],
+        EngineOptions::default().with_tile_size(10.0),
+    )
+    .unwrap();
+    let tool = Tool::flat_end_mill(6.0, 10.0);
+    let v = Pose::vertical;
+    e.cut(&tool, &MotionSegment::linear(v([6.0, 6.0, 10.0]), v([6.0, 6.0, 7.0]))).unwrap();
+    let rows = [6.0, 10.0, 14.0, 18.0, 22.0];
+    let mut x = 6.0;
+    for (i, y) in rows.iter().enumerate() {
+        let to = if x == 6.0 { 24.0 } else { 6.0 };
+        e.cut(&tool, &MotionSegment::linear(v([x, *y, 7.0]), v([to, *y, 7.0]))).unwrap();
+        x = to;
+        if let Some(next) = rows.get(i + 1) {
+            e.cut(&tool, &MotionSegment::linear(v([x, *y, 7.0]), v([x, *next, 7.0]))).unwrap();
+        }
+    }
+    let b = e.reconstruct_brep().unwrap();
+    b.check(1e-9).unwrap();
+    assert_eq!(b.curve_counts().2, 0, "no polyline fallback");
+}
+
+#[test]
+fn horizontal_arc_walls_are_cylinders_about_the_center() {
+    let mut e = Engine::new(ManifoldKernel, &[StockShape::Box { min: [0.0; 3], max: [20.0; 3] }], EngineOptions::default()).unwrap();
+    e.cut(
+        &Tool::flat_end_mill(4.0, 6.0),
+        &MotionSegment::arc(Pose::vertical([5.0, 10.0, 17.0]), Pose::vertical([15.0, 10.0, 17.0]), [10.0, 10.0, 17.0], [0.0, 0.0, 1.0]),
+    )
+    .unwrap();
+    let b = e.reconstruct_brep().unwrap();
+    b.check(1e-9).unwrap();
+    let (planes, cylinders) = b.surface_counts();
+    assert_eq!(planes, 7, "6 stock faces and one floor");
+    let outer = b.faces.iter().filter(|f| matches!(&f.surface, Surface::Cylinder { center, radius } if (center[0] - 10.0).abs() < 1e-9 && (radius - 7.0).abs() < 1e-9)).count();
+    let inner = b.faces.iter().filter(|f| matches!(&f.surface, Surface::Cylinder { center, radius } if (center[0] - 10.0).abs() < 1e-9 && (radius - 3.0).abs() < 1e-9)).count();
+    assert!(outer >= 1 && inner >= 1, "walls about the arc center: outer {outer} inner {inner} of {cylinders}");
+    assert_eq!(b.curve_counts().2, 0, "no polyline fallback");
+    // The analytic volume: a half annulus (7^2 - 3^2) * pi / 2 plus two half-disks of radius 2, 3 mm deep.
+    let removed = (49.0 - 9.0) * std::f64::consts::PI / 2.0 + std::f64::consts::PI * 4.0;
+    let expected = 8000.0 - removed * 3.0;
+    assert!((e.total_volume() - expected).abs() / expected < 5e-3, "mesh volume {} vs analytic {expected}", e.total_volume());
 }
