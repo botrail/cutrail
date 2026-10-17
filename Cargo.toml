@@ -1,0 +1,36 @@
+[package]
+name = "cutrail"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "Material removal simulation core for machining: mesh-based stock, robust booleans, 3- and 5-axis sweeps, STEP/mesh I/O"
+readme = "README.md"
+keywords = ["cnc", "machining", "simulation", "cam", "mesh"]
+categories = ["simulation", "science"]
+publish = false
+
+[workspace]
+members = ["cutrail-wasm"]
+exclude = [".internal"]
+
+[dependencies]
+manifold-rust = "0.16"
+thiserror = "2"
+truck-stepio = { version = "0.3", optional = true }
+truck-meshalgo = { version = "0.4", optional = true }
+truck-topology = { version = "0.6", optional = true }
+web-time = "1"
+zip = { version = "7.3.0", default-features = false }
+
+[features]
+default = []
+# native のみ。WASM では単一スレッド
+parallel = ["manifold-rust/parallel"]
+# STEP 素材の読込（truck-stepio で B-rep を読み、メッシュ化する）
+stepio = ["dep:truck-stepio", "dep:truck-meshalgo", "dep:truck-topology"]
+
+[dev-dependencies]
+truck-modeling = "0.6"
+truck-stepio = "0.3"
+truck-topology = "0.6"

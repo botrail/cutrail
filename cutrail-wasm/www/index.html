@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>cutrail worker demo</title>
+<pre id="log"></pre>
+<script type="module">
+  // 使い方：wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg → このディレクトリを静的配信する
+  const log = (s) => (document.getElementById("log").textContent += s + "\n");
+  const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  worker.onmessage = (ev) => {
+    const m = ev.data;
+    if (m.type === "ready") {
+      log(`ready: ${m.parts.length} tiles`);
+      const segments = [];
+      for (let i = 0; i < 200; i++) segments.push(10 + i * 0.5, 20, 15, 0, 0, 1, 10 + (i + 1) * 0.5, 20, 15, 0, 0, 1);
+      worker.postMessage({ type: "cut", segments: Float64Array.from(segments) });
+    } else if (m.type === "updated") {
+      log(`revision ${m.revision}: removed ${m.removed.toFixed(2)} mm3, ${m.meshes.length} tiles updated, remaining ${m.totalVolume.toFixed(1)} mm3`);
+    }
+  };
+  worker.postMessage({ type: "init", min: [0, 0, 0], max: [120, 40, 20], toolDiameter: 6, fluteLength: 20, tileSize: 10 });
+</script>

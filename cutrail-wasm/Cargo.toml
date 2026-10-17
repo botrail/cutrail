@@ -1,0 +1,14 @@
+[package]
+name = "cutrail-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "wasm-bindgen bindings for cutrail (Web Worker / Node)"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cutrail = { path = ".." }
+wasm-bindgen = "0.2"
