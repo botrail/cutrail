@@ -211,3 +211,38 @@ fn merged_mesh_labels_cut_faces() {
         assert_close(area(FaceKind::Stock), 528.0, 2e-3, "stock area");
     }
 }
+
+#[test]
+fn cell_meshes_carry_kinds_too() {
+    let mut e = Engine::new(
+        ManifoldKernel,
+        &[StockShape::Box {
+            min: [0.0; 3],
+            max: [10.0; 3],
+        }],
+        EngineOptions::default().with_tile_size(5.0),
+    )
+    .unwrap();
+    e.cut(
+        &Tool::flat_end_mill(4.0, 10.0),
+        &MotionSegment::linear(Pose::vertical([5.0, -5.0, 6.0]), Pose::vertical([5.0, 15.0, 6.0])),
+    )
+    .unwrap();
+    let mut cut_area = 0.0;
+    let mut stock_area = 0.0;
+    for part in e.parts() {
+        let (mesh, kinds) = e.mesh_with_kinds(part.id).unwrap();
+        assert_eq!(kinds.len(), mesh.triangle_count());
+        assert_eq!(mesh.triangle_count(), e.mesh(part.id).unwrap().triangle_count());
+        for (t, k) in mesh.triangles.iter().zip(&kinds) {
+            match k {
+                FaceKind::Cut => cut_area += triangle_area(&mesh, *t),
+                FaceKind::Stock => stock_area += triangle_area(&mesh, *t),
+            }
+        }
+    }
+    // Cell meshes include the seam faces between tiles (8 tiles, 12 internal seam faces of 25 mm2 each)
+    assert_close(cut_area, 120.0, 2e-3, "cut area over cells");
+    assert!(stock_area > 528.0 + 200.0, "seams count as stock: {stock_area}");
+    assert!(e.mesh_with_kinds(cutrail::PartId(9999)).is_none());
+}

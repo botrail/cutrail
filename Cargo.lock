@@ -213,7 +213,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "cutrail"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "manifold-rust",
  "serde",
@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "cutrail-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cutrail",
  "wasm-bindgen",

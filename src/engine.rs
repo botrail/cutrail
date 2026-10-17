@@ -610,14 +610,26 @@ impl<K: Kernel> MachiningEngine<K> {
     /// the cutter made, so that display code can color the two differently.
     pub fn merged_mesh_with_kinds(&self) -> Result<(TriMesh, Vec<FaceKind>)> {
         let (mesh, ids) = self.kernel.mesh_with_sources(&self.merged_solid()?);
-        let kinds = ids
-            .iter()
+        let kinds = self.kinds_of(&ids);
+        Ok((mesh, kinds))
+    }
+
+    /// The mesh of one cell together with the kind of every triangle (see [`Self::merged_mesh_with_kinds`]).
+    /// Unlike [`Self::mesh`] this is not cached. `None` if the cell does not exist.
+    pub fn mesh_with_kinds(&self, id: PartId) -> Option<(TriMesh, Vec<FaceKind>)> {
+        let cell = self.cells.iter().find(|c| c.id == id)?;
+        let (mesh, ids) = self.kernel.mesh_with_sources(&cell.solid);
+        let kinds = self.kinds_of(&ids);
+        Some((mesh, kinds))
+    }
+
+    fn kinds_of(&self, ids: &[u32]) -> Vec<FaceKind> {
+        ids.iter()
             .map(|id| match self.sources.get(id) {
                 Some(Source::Stock) | None => FaceKind::Stock,
                 Some(_) => FaceKind::Cut,
             })
-            .collect();
-        Ok((mesh, kinds))
+            .collect()
     }
 
     /// All cells concatenated into one mesh.

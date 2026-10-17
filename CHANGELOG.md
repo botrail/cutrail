@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1 (unreleased)
+
+- `MachiningEngine::mesh_with_kinds`: the mesh of one cell with the stock / cut kind of every triangle, for incremental display of tiled stock.
+
+## 0.1.0 (2026-10-18)
 
 First release.
 
