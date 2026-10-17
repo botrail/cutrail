@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 /// A triangle mesh whose vertices carry positions only.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TriMesh {
     /// Vertex positions
     pub positions: Vec<Point3>,
@@ -39,8 +40,12 @@ impl TriMesh {
     pub fn append(&mut self, other: &TriMesh) {
         let offset = self.positions.len() as u32;
         self.positions.extend_from_slice(&other.positions);
-        self.triangles
-            .extend(other.triangles.iter().map(|t| [t[0] + offset, t[1] + offset, t[2] + offset]));
+        self.triangles.extend(
+            other
+                .triangles
+                .iter()
+                .map(|t| [t[0] + offset, t[1] + offset, t[2] + offset]),
+        );
     }
 
     /// Writes binary STL.
@@ -83,7 +88,11 @@ impl TriMesh {
         let mut remap = Vec::with_capacity(self.positions.len());
         let mut positions = Vec::with_capacity(self.positions.len());
         for p in &self.positions {
-            let key = [(p[0] / cell).round() as i64, (p[1] / cell).round() as i64, (p[2] / cell).round() as i64];
+            let key = [
+                (p[0] / cell).round() as i64,
+                (p[1] / cell).round() as i64,
+                (p[2] / cell).round() as i64,
+            ];
             let idx = *lookup.entry(key).or_insert_with(|| {
                 positions.push(*p);
                 (positions.len() - 1) as u32
@@ -126,7 +135,14 @@ impl TriMesh {
                 let mut tri = [0u32; 3];
                 for (k, slot) in tri.iter_mut().enumerate() {
                     let o = base + 12 * k;
-                    let f = |j: usize| f32::from_le_bytes([data[o + 4 * j], data[o + 4 * j + 1], data[o + 4 * j + 2], data[o + 4 * j + 3]]) as f64;
+                    let f = |j: usize| {
+                        f32::from_le_bytes([
+                            data[o + 4 * j],
+                            data[o + 4 * j + 1],
+                            data[o + 4 * j + 2],
+                            data[o + 4 * j + 3],
+                        ]) as f64
+                    };
                     mesh.positions.push([f(0), f(1), f(2)]);
                     *slot = (mesh.positions.len() - 1) as u32;
                 }
@@ -170,7 +186,8 @@ impl TriMesh {
     /// Reads Wavefront OBJ (`v` and `f` records; polygons are fan-triangulated). Vertices are shared as in the file,
     /// and positions keep their full precision, unlike STL.
     pub fn read_obj<R: io::BufRead>(r: R) -> io::Result<TriMesh> {
-        let bad = |line: usize, what: &str| io::Error::new(io::ErrorKind::InvalidData, format!("OBJ line {line}: {what}"));
+        let bad =
+            |line: usize, what: &str| io::Error::new(io::ErrorKind::InvalidData, format!("OBJ line {line}: {what}"));
         let mut mesh = TriMesh::default();
         for (n, line) in r.lines().enumerate() {
             let line = line?;
@@ -179,7 +196,10 @@ impl TriMesh {
                 Some("v") => {
                     let mut p = [0.0; 3];
                     for v in &mut p {
-                        *v = it.next().and_then(|s| s.parse().ok()).ok_or_else(|| bad(n + 1, "vertex needs three numbers"))?;
+                        *v = it
+                            .next()
+                            .and_then(|s| s.parse().ok())
+                            .ok_or_else(|| bad(n + 1, "vertex needs three numbers"))?;
                     }
                     mesh.positions.push(p);
                 }
@@ -187,7 +207,12 @@ impl TriMesh {
                     let count = mesh.positions.len() as i64;
                     let corners: Vec<u32> = it
                         .map(|tok| {
-                            let i: i64 = tok.split('/').next().unwrap_or("").parse().map_err(|_| bad(n + 1, "face index"))?;
+                            let i: i64 = tok
+                                .split('/')
+                                .next()
+                                .unwrap_or("")
+                                .parse()
+                                .map_err(|_| bad(n + 1, "face index"))?;
                             let i = if i < 0 { count + i } else { i - 1 };
                             if i < 0 || i >= count {
                                 return Err(bad(n + 1, "face index out of range"));
@@ -216,10 +241,18 @@ impl TriMesh {
     /// Reads a file in the format given by its extension (stl / obj).
     pub fn read_file<P: AsRef<std::path::Path>>(path: P) -> io::Result<TriMesh> {
         let path = path.as_ref();
-        match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+        match path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref()
+        {
             Some("stl") => Self::read_stl_file(path),
             Some("obj") => Self::read_obj_file(path),
-            other => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unsupported mesh extension {other:?} (stl, obj)"))),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unsupported mesh extension {other:?} (stl, obj)"),
+            )),
         }
     }
 
@@ -244,7 +277,7 @@ impl TriMesh {
             }
         }
         let index_len = bin.len();
-        while bin.len() % 4 != 0 {
+        while !bin.len().is_multiple_of(4) {
             bin.push(0);
         }
         let position_offset = bin.len();
@@ -255,10 +288,14 @@ impl TriMesh {
             }
         }
         let position_len = bin.len() - position_offset;
-        while bin.len() % 4 != 0 {
+        while !bin.len().is_multiple_of(4) {
             bin.push(0);
         }
-        let (min, max) = if b.is_empty() { ([0.0; 3], [0.0; 3]) } else { (b.min, b.max) };
+        let (min, max) = if b.is_empty() {
+            ([0.0; 3], [0.0; 3])
+        } else {
+            (b.min, b.max)
+        };
         let json = format!(
             concat!(
                 "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"cutrail\"}},",
@@ -284,7 +321,7 @@ impl TriMesh {
             max[2] as f32,
         );
         let mut json = json.into_bytes();
-        while json.len() % 4 != 0 {
+        while !json.len().is_multiple_of(4) {
             json.push(b' ');
         }
         let total = 12 + 8 + json.len() + 8 + bin.len();
@@ -338,7 +375,11 @@ impl TriMesh {
         }
         model.push_str("    </vertices>\n    <triangles>\n");
         for t in &self.triangles {
-            let _ = writeln!(model, "     <triangle v1=\"{}\" v2=\"{}\" v3=\"{}\"/>", t[0], t[1], t[2]);
+            let _ = writeln!(
+                model,
+                "     <triangle v1=\"{}\" v2=\"{}\" v3=\"{}\"/>",
+                t[0], t[1], t[2]
+            );
         }
         model.push_str(
             r#"    </triangles>
@@ -360,7 +401,11 @@ impl TriMesh {
     /// Writes a file in the format given by its extension (stl / obj / glb / 3mf).
     pub fn write_file<P: AsRef<std::path::Path>>(&self, path: P) -> io::Result<()> {
         let path = path.as_ref();
-        let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
         let file = std::fs::File::create(path)?;
         let mut w = io::BufWriter::new(file);
         match ext.as_str() {
@@ -368,7 +413,10 @@ impl TriMesh {
             "obj" => self.write_obj(&mut w),
             "glb" => self.write_glb(&mut w),
             "3mf" => self.write_3mf(&mut w),
-            other => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unsupported mesh format: {other}"))),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unsupported mesh format: {other}"),
+            )),
         }
     }
 }

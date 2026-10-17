@@ -22,7 +22,11 @@ fn distance_to_polyline(p: [f64; 3], poly: &[[f64; 3]]) -> f64 {
             let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
             let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
             let len2 = ab.iter().map(|v| v * v).sum::<f64>();
-            let t = if len2 > 0.0 { (ap.iter().zip(&ab).map(|(x, y)| x * y).sum::<f64>() / len2).clamp(0.0, 1.0) } else { 0.0 };
+            let t = if len2 > 0.0 {
+                (ap.iter().zip(&ab).map(|(x, y)| x * y).sum::<f64>() / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             let q = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
             ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
         })
@@ -45,7 +49,10 @@ fn max_deviation_breaks_segments_at_corners() {
     segments.extend(builder.flush());
     assert_eq!(segments.len(), 2, "one segment per straight stretch: {segments:?}");
     let poly = tips(&segments);
-    assert!((poly[1][0] - 10.0).abs() < 1e-9 && poly[1][1].abs() < 1e-9, "the break lands on the corner: {poly:?}");
+    assert!(
+        (poly[1][0] - 10.0).abs() < 1e-9 && poly[1][1].abs() < 1e-9,
+        "the break lands on the corner: {poly:?}"
+    );
     assert_eq!(poly[2], [10.0, 10.0, 5.0]);
 
     // Without the bound the same thresholds chord across the corner.

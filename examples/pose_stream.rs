@@ -25,7 +25,9 @@ use std::fs::{self, File};
 use std::io::BufWriter;
 use std::time::Instant;
 
-use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, SegmentBuilder, StockShape, Tool, TriMesh};
+use cutrail::{
+    CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, SegmentBuilder, StockShape, Tool, TriMesh,
+};
 
 struct Args {
     csv: String,
@@ -93,7 +95,11 @@ struct Stats {
 }
 
 fn apply(engine: &mut Engine, tool: &Tool, segments: &[MotionSegment], stats: &mut Stats) -> cutrail::Result<()> {
-    let report = if segments.len() == 1 { engine.cut(tool, &segments[0])? } else { engine.cut_batch(tool, segments)? };
+    let report = if segments.len() == 1 {
+        engine.cut(tool, &segments[0])?
+    } else {
+        engine.cut_batch(tool, segments)?
+    };
     stats.times_ms.push(report.elapsed.as_secs_f64() * 1e3);
     if matches!(report.outcome, CutOutcome::NoChange) {
         stats.no_change += 1;
@@ -134,7 +140,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Some("tool") if f.len() >= 4 => {
                     let d: f64 = f[2].parse()?;
                     let l: f64 = f[3].parse()?;
-                    tool = if f[1] == "ball" { Tool::ball_end_mill(d, l) } else { Tool::flat_end_mill(d, l) };
+                    tool = if f[1] == "ball" {
+                        Tool::ball_end_mill(d, l)
+                    } else {
+                        Tool::flat_end_mill(d, l)
+                    };
                 }
                 _ => {}
             }
@@ -185,7 +195,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut sorted = stats.times_ms.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let sum_ms: f64 = sorted.iter().sum();
-    let mean = if sorted.is_empty() { 0.0 } else { sum_ms / sorted.len() as f64 };
+    let mean = if sorted.is_empty() {
+        0.0
+    } else {
+        sum_ms / sorted.len() as f64
+    };
     let removed = initial - engine.total_volume();
     println!(
         "{} samples -> {} segments in {} calls ({} updated, {} unchanged, {} exhausted), batch {}",

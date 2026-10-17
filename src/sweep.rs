@@ -20,6 +20,7 @@ const MAX_ARC_STEPS: usize = 4096;
 
 /// Geometric description of a swept volume.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum SweptVolume {
     /// Convex hull of a point set: the sweep of a translation
@@ -107,25 +108,28 @@ pub fn rotation_steps(angle: f64, reach: f64, chord_tolerance: f64) -> usize {
 /// An orthonormal basis perpendicular to the axis.
 fn frame(axis: Vector3) -> Option<(Vector3, Vector3)> {
     let axis = normalize(axis)?;
-    let helper = if axis[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let helper = if axis[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
     let u = normalize(cross(axis, helper))?;
     let v = cross(axis, u);
     Some((u, v))
 }
 
 /// Point cloud of a revolution profile `(radius, height)` placed at `pose`; radii are scaled by `radial_scale`.
-fn revolve_points(
-    profile: &[(f64, f64)],
-    pose: &Pose,
-    segments: usize,
-    radial_scale: f64,
-) -> Result<Vec<Point3>> {
+fn revolve_points(profile: &[(f64, f64)], pose: &Pose, segments: usize, radial_scale: f64) -> Result<Vec<Point3>> {
     let axis = normalize(pose.axis)
         .ok_or_else(|| Error::InvalidInput(format!("pose axis is not a valid direction: {:?}", pose.axis)))?;
     let (u, v) = frame(axis).ok_or_else(|| Error::InvalidInput("degenerate tool axis".into()))?;
     let mut points = Vec::with_capacity(profile.len() * segments);
     for &(radial, height) in profile {
-        let c = [pose.tip[0] + axis[0] * height, pose.tip[1] + axis[1] * height, pose.tip[2] + axis[2] * height];
+        let c = [
+            pose.tip[0] + axis[0] * height,
+            pose.tip[1] + axis[1] * height,
+            pose.tip[2] + axis[2] * height,
+        ];
         let r = radial * radial_scale;
         if r <= 1e-12 {
             points.push(c);
@@ -182,10 +186,7 @@ pub fn sample_poses(tool: &Tool, segment: &MotionSegment, chord_tolerance: f64) 
 }
 
 /// Builds, for each pair of consecutive poses, the hull of both instance point sets.
-fn hulls_between(
-    poses: &[Pose],
-    mut points_at: impl FnMut(&Pose) -> Result<Vec<Point3>>,
-) -> Result<SweptVolume> {
+fn hulls_between(poses: &[Pose], mut points_at: impl FnMut(&Pose) -> Result<Vec<Point3>>) -> Result<SweptVolume> {
     let mut prev = points_at(&poses[0])?;
     if poses.len() == 2 {
         let mut hull = prev;
@@ -212,7 +213,11 @@ pub fn swept_volume(tool: &Tool, segment: &MotionSegment, chord_tolerance: f64) 
 }
 
 /// The swept volume of the cutting part as convex pieces, each with the poses at its ends (for provenance records).
-pub fn swept_pieces(tool: &Tool, segment: &MotionSegment, chord_tolerance: f64) -> Result<Vec<(Pose, Pose, Vec<Point3>)>> {
+pub fn swept_pieces(
+    tool: &Tool,
+    segment: &MotionSegment,
+    chord_tolerance: f64,
+) -> Result<Vec<(Pose, Pose, Vec<Point3>)>> {
     tool.validate()?;
     segment.validate()?;
     let poses = sample_poses(tool, segment, chord_tolerance)?;
@@ -238,6 +243,10 @@ pub fn non_cutting_volumes(tool: &Tool, segment: &MotionSegment, chord_tolerance
     }
     let poses = sample_poses(tool, segment, chord_tolerance)?;
     (0..count)
-        .map(|i| hulls_between(&poses, |pose| Ok(non_cutting_instance_points(tool, pose, chord_tolerance)?.swap_remove(i))))
+        .map(|i| {
+            hulls_between(&poses, |pose| {
+                Ok(non_cutting_instance_points(tool, pose, chord_tolerance)?.swap_remove(i))
+            })
+        })
         .collect()
 }

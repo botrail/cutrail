@@ -37,8 +37,9 @@ pub mod tool;
 
 pub use brep::{Brep, Source};
 pub use compare::DesignComparison;
-pub use engine::{BatchError, Collision, CutOutcome, CutReport, EngineOptions, MachiningEngine, PartId, PartInfo};
-pub use stream::SegmentBuilder;
+pub use engine::{
+    BatchError, Collision, CutOutcome, CutReport, EngineOptions, FaceKind, MachiningEngine, PartId, PartInfo,
+};
 pub use error::{Error, Result};
 pub use geom::{Aabb, Point3, Vector3};
 pub use kernel::manifold::ManifoldKernel;
@@ -46,6 +47,7 @@ pub use kernel::{Kernel, SolidSummary};
 pub use mesh::TriMesh;
 pub use motion::{slerp, ArcGeometry, MotionSegment, Pose};
 pub use stock::StockShape;
+pub use stream::SegmentBuilder;
 pub use sweep::SweptVolume;
 pub use tool::{Cutter, Holder, Shank, Tool};
 

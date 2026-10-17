@@ -34,6 +34,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         cmp.gouge_volume,
         cmp.gouge_bounds
     );
-    println!("RESULT excess_mm3={:.4} gouge_mm3={:.4}", cmp.excess_volume, cmp.gouge_volume);
+    println!(
+        "RESULT excess_mm3={:.4} gouge_mm3={:.4}",
+        cmp.excess_volume, cmp.gouge_volume
+    );
     Ok(())
 }

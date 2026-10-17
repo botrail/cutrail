@@ -24,7 +24,11 @@ pub struct SegmentBuilder {
 fn distance_to_segment(p: Point3, a: Point3, b: Point3) -> f64 {
     let ab = sub(b, a);
     let len2 = dot(ab, ab);
-    let t = if len2 > 0.0 { (dot(sub(p, a), ab) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if len2 > 0.0 {
+        (dot(sub(p, a), ab) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let q = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
     norm(sub(p, q))
 }

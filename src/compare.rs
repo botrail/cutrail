@@ -9,6 +9,7 @@ use crate::mesh::TriMesh;
 /// With a `tolerance`, the differences are taken against the design offset outward and inward by that distance,
 /// so deviations within the tolerance are ignored.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DesignComparison {
     /// Tolerance used (mm)
     pub tolerance: f64,

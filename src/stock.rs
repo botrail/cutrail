@@ -7,6 +7,7 @@ use std::f64::consts::PI;
 
 /// Stock primitives.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum StockShape {
     /// Axis-aligned box
@@ -37,12 +38,16 @@ impl StockShape {
         match self {
             StockShape::Box { min, max } => {
                 if (0..3).any(|i| max[i] <= min[i] || !min[i].is_finite() || !max[i].is_finite()) {
-                    return Err(Error::InvalidInput(format!("box must have positive extent: {min:?}..{max:?}")));
+                    return Err(Error::InvalidInput(format!(
+                        "box must have positive extent: {min:?}..{max:?}"
+                    )));
                 }
             }
             StockShape::Cylinder { radius, z0, z1, .. } => {
                 if *radius <= 0.0 || *z1 <= *z0 || !radius.is_finite() || !z0.is_finite() || !z1.is_finite() {
-                    return Err(Error::InvalidInput("cylinder must have positive radius and height".into()));
+                    return Err(Error::InvalidInput(
+                        "cylinder must have positive radius and height".into(),
+                    ));
                 }
             }
             StockShape::Mesh(mesh) => {

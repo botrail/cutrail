@@ -1,5 +1,7 @@
 //! Machining engine: stock state (parts or tiles), per-segment subtraction, validation and commit, history.
 
+use crate::brep::{self, Brep, Source};
+use crate::compare::DesignComparison;
 use crate::error::{Error, Result};
 use crate::geom::{Aabb, Point3};
 use crate::kernel::Kernel;
@@ -7,22 +9,23 @@ use crate::mesh::TriMesh;
 use crate::motion::MotionSegment;
 use crate::stock::StockShape;
 use crate::sweep;
+use crate::tool::Cutter;
 use crate::tool::Tool;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::OnceLock;
-use crate::brep::{self, Brep, Source};
-use crate::compare::DesignComparison;
-use crate::tool::Cutter;
 use std::time::Duration;
 use web_time::Instant;
 
 /// Identifier of a cell. In part mode, pieces created by a split get new numbers; in tiled mode it is the tile index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PartId(pub u32);
 
 /// Engine options.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct EngineOptions {
     /// Chord tolerance (mm) for approximating the arcs of swept volumes
     pub sweep_tolerance: f64,
@@ -73,6 +76,7 @@ impl EngineOptions {
 
 /// Collision between shank/holder and the stock, checked after the cutting part has been subtracted.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Collision {
     /// Intersecting volume (mm³)
     pub volume: f64,
@@ -80,8 +84,19 @@ pub struct Collision {
     pub bounds: Aabb,
 }
 
+/// What a triangle of the machined mesh belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum FaceKind {
+    /// The original stock surface
+    Stock,
+    /// A surface created by the cutter
+    Cut,
+}
+
 /// Outcome of one cut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CutOutcome {
     /// The tool removed nothing; the state is unchanged
     NoChange,
@@ -93,6 +108,7 @@ pub enum CutOutcome {
 
 /// Report of one cut (a segment or a batch of segments).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CutReport {
     /// Outcome
     pub outcome: CutOutcome,
@@ -118,6 +134,7 @@ pub struct CutReport {
 
 /// Public information about a cell.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PartInfo {
     /// Identifier
     pub id: PartId,
@@ -144,7 +161,13 @@ pub struct BatchError {
 
 impl std::fmt::Display for BatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "segment {} failed after {} completed: {}", self.index, self.completed.len(), self.error)
+        write!(
+            f,
+            "segment {} failed after {} completed: {}",
+            self.index,
+            self.completed.len(),
+            self.error
+        )
     }
 }
 
@@ -170,7 +193,15 @@ struct Cell<S> {
 
 impl<S> Cell<S> {
     fn new(id: PartId, bounds: Aabb, solid: S, volume: f64, triangles: usize, revision: u64) -> Self {
-        Cell { id, bounds, solid, volume, triangles, revision, mesh: OnceLock::new() }
+        Cell {
+            id,
+            bounds,
+            solid,
+            volume,
+            triangles,
+            revision,
+            mesh: OnceLock::new(),
+        }
     }
 }
 
@@ -178,7 +209,12 @@ enum Layout {
     /// Part mode: splits create more parts
     Whole,
     /// Tiled mode: maps tile indices to positions in `cells`
-    Tiled { origin: [f64; 3], size: f64, dims: [usize; 3], index: HashMap<u32, usize> },
+    Tiled {
+        origin: [f64; 3],
+        size: f64,
+        dims: [usize; 3],
+        index: HashMap<u32, usize>,
+    },
 }
 
 /// Machining engine.
@@ -221,7 +257,13 @@ fn is_closed(mesh: &TriMesh) -> bool {
 /// Welds vertices closer than `tol` and drops the triangles that collapse, keeping `ids` aligned. The union of
 /// touching cells can leave the two sides of a seam with their own copies of the seam vertices.
 fn weld_vertices(mesh: &mut TriMesh, ids: Option<&mut Vec<u32>>, tol: f64) -> usize {
-    let cell = |p: Point3| ((p[0] / tol).floor() as i64, (p[1] / tol).floor() as i64, (p[2] / tol).floor() as i64);
+    let cell = |p: Point3| {
+        (
+            (p[0] / tol).floor() as i64,
+            (p[1] / tol).floor() as i64,
+            (p[2] / tol).floor() as i64,
+        )
+    };
     let mut grid: HashMap<(i64, i64, i64), Vec<u32>> = HashMap::new();
     let mut remap: Vec<u32> = (0..mesh.positions.len() as u32).collect();
     let mut welded = 0usize;
@@ -282,7 +324,11 @@ fn drop_double_walls(mesh: &mut TriMesh, ids: Option<&mut Vec<u32>>) -> usize {
     let key_of = |p: Point3| (q(p[0]), q(p[1]), q(p[2]));
     let mut groups: HashMap<[(i64, i64, i64); 3], Vec<usize>> = HashMap::new();
     for (i, t) in mesh.triangles.iter().enumerate() {
-        let mut k = [key_of(mesh.positions[t[0] as usize]), key_of(mesh.positions[t[1] as usize]), key_of(mesh.positions[t[2] as usize])];
+        let mut k = [
+            key_of(mesh.positions[t[0] as usize]),
+            key_of(mesh.positions[t[1] as usize]),
+            key_of(mesh.positions[t[2] as usize]),
+        ];
         k.sort();
         groups.entry(k).or_default().push(i);
     }
@@ -296,10 +342,18 @@ fn drop_double_walls(mesh: &mut TriMesh, ids: Option<&mut Vec<u32>>) -> usize {
         while unpaired.len() >= 2 {
             let a = unpaired.remove(0);
             let ta = mesh.triangles[a];
-            let ka = [key_of(mesh.positions[ta[0] as usize]), key_of(mesh.positions[ta[1] as usize]), key_of(mesh.positions[ta[2] as usize])];
+            let ka = [
+                key_of(mesh.positions[ta[0] as usize]),
+                key_of(mesh.positions[ta[1] as usize]),
+                key_of(mesh.positions[ta[2] as usize]),
+            ];
             let Some(pos) = unpaired.iter().position(|&b| {
                 let tb = mesh.triangles[b];
-                let kb = [key_of(mesh.positions[tb[0] as usize]), key_of(mesh.positions[tb[1] as usize]), key_of(mesh.positions[tb[2] as usize])];
+                let kb = [
+                    key_of(mesh.positions[tb[0] as usize]),
+                    key_of(mesh.positions[tb[1] as usize]),
+                    key_of(mesh.positions[tb[2] as usize]),
+                ];
                 // Same vertex set in reversed cyclic order
                 (0..3).any(|s| kb[0] == ka[s] && kb[1] == ka[(s + 2) % 3] && kb[2] == ka[(s + 1) % 3])
             }) else {
@@ -346,7 +400,9 @@ impl<K: Kernel> MachiningEngine<K> {
             return Err(Error::InvalidInput("simplify tolerance must be positive".into()));
         }
         if options.collision_volume_epsilon < 0.0 {
-            return Err(Error::InvalidInput("collision volume epsilon must not be negative".into()));
+            return Err(Error::InvalidInput(
+                "collision volume epsilon must not be negative".into(),
+            ));
         }
         for shape in stock {
             shape.validate()?;
@@ -377,7 +433,14 @@ impl<K: Kernel> MachiningEngine<K> {
             let summary = self.kernel.summary(&solid);
             let id = PartId(self.next_id);
             self.next_id += 1;
-            self.cells.push(Cell::new(id, summary.bounds, solid, summary.volume(), summary.triangles, 0));
+            self.cells.push(Cell::new(
+                id,
+                summary.bounds,
+                solid,
+                summary.volume(),
+                summary.triangles,
+                0,
+            ));
         }
         Ok(())
     }
@@ -408,14 +471,20 @@ impl<K: Kernel> MachiningEngine<K> {
         for i in 0..dims[0] {
             for j in 0..dims[1] {
                 for k in 0..dims[2] {
-                    let min = [origin[0] + i as f64 * size, origin[1] + j as f64 * size, origin[2] + k as f64 * size];
+                    let min = [
+                        origin[0] + i as f64 * size,
+                        origin[1] + j as f64 * size,
+                        origin[2] + k as f64 * size,
+                    ];
                     let max = [
                         (min[0] + size).min(bounds.max[0]),
                         (min[1] + size).min(bounds.max[1]),
                         (min[2] + size).min(bounds.max[2]),
                     ];
                     let tile_bounds = Aabb { min, max };
-                    let tile_box = self.kernel.make_stock(&StockShape::Box { min, max }, self.options.stock_tolerance)?;
+                    let tile_box = self
+                        .kernel
+                        .make_stock(&StockShape::Box { min, max }, self.options.stock_tolerance)?;
                     let solid = self.kernel.intersection(&whole, &tile_box)?;
                     if self.kernel.is_empty(&solid) {
                         continue;
@@ -424,12 +493,24 @@ impl<K: Kernel> MachiningEngine<K> {
                     let volume = self.kernel.volume(&solid);
                     let triangles = self.kernel.triangle_count(&solid);
                     index.insert(linear as u32, self.cells.len());
-                    self.cells.push(Cell::new(PartId(linear as u32), tile_bounds, solid, volume, triangles, 0));
+                    self.cells.push(Cell::new(
+                        PartId(linear as u32),
+                        tile_bounds,
+                        solid,
+                        volume,
+                        triangles,
+                        0,
+                    ));
                 }
             }
         }
         self.next_id = (dims[0] * dims[1] * dims[2]) as u32;
-        self.layout = Layout::Tiled { origin, size, dims, index };
+        self.layout = Layout::Tiled {
+            origin,
+            size,
+            dims,
+            index,
+        };
         Ok(())
     }
 
@@ -457,7 +538,13 @@ impl<K: Kernel> MachiningEngine<K> {
     pub fn parts(&self) -> Vec<PartInfo> {
         self.cells
             .iter()
-            .map(|c| PartInfo { id: c.id, bounds: c.bounds, volume: c.volume, triangles: c.triangles, revision: c.revision })
+            .map(|c| PartInfo {
+                id: c.id,
+                bounds: c.bounds,
+                volume: c.volume,
+                triangles: c.triangles,
+                revision: c.revision,
+            })
             .collect()
     }
 
@@ -478,29 +565,59 @@ impl<K: Kernel> MachiningEngine<K> {
 
     /// Cells changed or created after `revision`. Cells that disappeared can be found by diffing against `parts()`.
     pub fn changed_since(&self, revision: u64) -> Vec<PartId> {
-        self.cells.iter().filter(|c| c.revision > revision).map(|c| c.id).collect()
+        self.cells
+            .iter()
+            .filter(|c| c.revision > revision)
+            .map(|c| c.id)
+            .collect()
     }
 
     /// Display mesh of a cell, cached until the cell changes.
     pub fn mesh(&self, id: PartId) -> Option<&TriMesh> {
-        self.cells.iter().find(|c| c.id == id).map(|c| c.mesh.get_or_init(|| self.kernel.mesh(&c.solid)))
+        self.cells
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.mesh.get_or_init(|| self.kernel.mesh(&c.solid)))
     }
 
     /// Display meshes of all cells.
     pub fn meshes(&self) -> Vec<(PartId, &TriMesh)> {
-        self.cells.iter().map(|c| (c.id, c.mesh.get_or_init(|| self.kernel.mesh(&c.solid)))).collect()
+        self.cells
+            .iter()
+            .map(|c| (c.id, c.mesh.get_or_init(|| self.kernel.mesh(&c.solid))))
+            .collect()
+    }
+
+    /// All cells united into one solid.
+    fn merged_solid(&self) -> Result<K::Solid> {
+        match self.cells.len() {
+            0 => Err(Error::InvalidInput("no material left".into())),
+            1 => Ok(self.cells[0].solid.clone()),
+            _ => self
+                .kernel
+                .union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>()),
+        }
     }
 
     /// All cells united into one closed mesh. In tiled mode the tiles share faces along the seams, so the
     /// concatenation of [`Self::combined_mesh`] is fine for display but not a single solid; this unites them
     /// first (one boolean over all cells), which is what a watertight export or a comparison needs.
     pub fn merged_mesh(&self) -> Result<TriMesh> {
-        let merged: K::Solid = match self.cells.len() {
-            0 => return Err(Error::InvalidInput("no material left".into())),
-            1 => self.cells[0].solid.clone(),
-            _ => self.kernel.union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>())?,
-        };
-        Ok(self.kernel.mesh(&merged))
+        Ok(self.kernel.mesh(&self.merged_solid()?))
+    }
+
+    /// [`Self::merged_mesh`] together with the kind of every triangle: the surviving stock skin or a surface
+    /// the cutter made, so that display code can color the two differently.
+    pub fn merged_mesh_with_kinds(&self) -> Result<(TriMesh, Vec<FaceKind>)> {
+        let (mesh, ids) = self.kernel.mesh_with_sources(&self.merged_solid()?);
+        let kinds = ids
+            .iter()
+            .map(|id| match self.sources.get(id) {
+                Some(Source::Stock) | None => FaceKind::Stock,
+                Some(_) => FaceKind::Cut,
+            })
+            .collect();
+        Ok((mesh, kinds))
     }
 
     /// All cells concatenated into one mesh.
@@ -527,11 +644,7 @@ impl<K: Kernel> MachiningEngine<K> {
     /// Surfaces produced by horizontal moves and plunges of flat end mills in 3-axis machining become analytic;
     /// everything else becomes planar facets of merged coplanar triangles. In tiled mode all tiles are united first.
     pub fn reconstruct_brep(&self) -> Result<Brep> {
-        let machined: K::Solid = match self.cells.len() {
-            0 => return Err(Error::InvalidInput("no material left to reconstruct".into())),
-            1 => self.cells[0].solid.clone(),
-            _ => self.kernel.union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>())?,
-        };
+        let machined = self.merged_solid()?;
         let (raw, raw_ids) = self.kernel.mesh_with_sources(&machined);
         let (mut mesh, mut ids) = (raw.clone(), raw_ids.clone());
         // The union of touching tiles can leave zero-thickness walls along the seams: weld the two sides,
@@ -564,8 +677,10 @@ impl<K: Kernel> MachiningEngine<K> {
         let design_solid = self.kernel.make_mesh(design, self.options.stock_tolerance * 0.01)?;
         let (outer, inner) = if tolerance > 0.0 {
             (
-                self.kernel.offset(&design_solid, tolerance, self.options.sweep_tolerance)?,
-                self.kernel.offset(&design_solid, -tolerance, self.options.sweep_tolerance)?,
+                self.kernel
+                    .offset(&design_solid, tolerance, self.options.sweep_tolerance)?,
+                self.kernel
+                    .offset(&design_solid, -tolerance, self.options.sweep_tolerance)?,
             )
         } else {
             (design_solid.clone(), design_solid)
@@ -573,7 +688,10 @@ impl<K: Kernel> MachiningEngine<K> {
         let machined: Option<K::Solid> = match self.cells.len() {
             0 => None,
             1 => Some(self.cells[0].solid.clone()),
-            _ => Some(self.kernel.union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>())?),
+            _ => Some(
+                self.kernel
+                    .union_all(&self.cells.iter().map(|c| c.solid.clone()).collect::<Vec<_>>())?,
+            ),
         };
         let (excess, gouge) = match &machined {
             Some(m) => (self.kernel.difference(m, &outer)?, self.kernel.difference(&inner, m)?),
@@ -602,7 +720,12 @@ impl<K: Kernel> MachiningEngine<K> {
 
     /// Builds the swept volumes (per convex piece) of the cutting and non-cutting parts for a sequence of segments.
     fn plan(&mut self, tool: &Tool, segments: &[MotionSegment]) -> Result<SweepPlan<K::Solid>> {
-        let mut plan = SweepPlan { cutting: Vec::new(), non_cutting: Vec::new(), bounds: Aabb::empty(), pieces: 0 };
+        let mut plan = SweepPlan {
+            cutting: Vec::new(),
+            non_cutting: Vec::new(),
+            bounds: Aabb::empty(),
+            pieces: 0,
+        };
         let radius = tool.radius();
         let mesh_radius = {
             let n = sweep::circle_segments(radius, self.options.sweep_tolerance);
@@ -623,7 +746,9 @@ impl<K: Kernel> MachiningEngine<K> {
                 let source = match segment.arc_geometry()? {
                     Some(g) if vertical && g.n[2].abs() > 1.0 - 1e-9 && (g.h0 - g.h1).abs() < 1e-9 => {
                         let (seg_from, seg_to) = segment.endpoints();
-                        let MotionSegment::Arc { center, .. } = segment else { unreachable!() };
+                        let MotionSegment::Arc { center, .. } = segment else {
+                            unreachable!()
+                        };
                         let a0 = (from.tip[1] - center[1]).atan2(from.tip[0] - center[0]);
                         let a1 = (to.tip[1] - center[1]).atan2(to.tip[0] - center[0]);
                         let mut step = (a1 - a0).abs();
@@ -641,7 +766,12 @@ impl<K: Kernel> MachiningEngine<K> {
                             to: *seg_to,
                         }
                     }
-                    _ if vertical => Source::FlatSweep { radius, mesh_radius, from, to },
+                    _ if vertical => Source::FlatSweep {
+                        radius,
+                        mesh_radius,
+                        from,
+                        to,
+                    },
                     _ => Source::Other,
                 };
                 self.sources.insert(source_id, source);
@@ -680,16 +810,34 @@ impl<K: Kernel> MachiningEngine<K> {
         }
         tool.validate()?;
         let plan = self.plan(tool, segments)?;
-        self.apply(&plan, started, vec![format!("batch of {} segments in {} pieces", segments.len(), plan.pieces)])
+        self.apply(
+            &plan,
+            started,
+            vec![format!(
+                "batch of {} segments in {} pieces",
+                segments.len(),
+                plan.pieces
+            )],
+        )
     }
 
     /// Cuts several segments in order. Segments before a failure are committed.
-    pub fn cut_many(&mut self, tool: &Tool, segments: &[MotionSegment]) -> std::result::Result<Vec<CutReport>, BatchError> {
+    pub fn cut_many(
+        &mut self,
+        tool: &Tool,
+        segments: &[MotionSegment],
+    ) -> std::result::Result<Vec<CutReport>, BatchError> {
         let mut completed = Vec::with_capacity(segments.len());
         for (index, segment) in segments.iter().enumerate() {
             match self.cut(tool, segment) {
                 Ok(report) => completed.push(report),
-                Err(error) => return Err(BatchError { index, completed, error }),
+                Err(error) => {
+                    return Err(BatchError {
+                        index,
+                        completed,
+                        error,
+                    })
+                }
             }
         }
         Ok(completed)
@@ -705,7 +853,12 @@ impl<K: Kernel> MachiningEngine<K> {
                 .filter(|(_, c)| c.bounds.intersects(bounds))
                 .map(|(i, _)| i)
                 .collect(),
-            Layout::Tiled { origin, size, dims, index } => {
+            Layout::Tiled {
+                origin,
+                size,
+                dims,
+                index,
+            } => {
                 let mut lo = [0usize; 3];
                 let mut hi = [0usize; 3];
                 for a in 0..3 {
@@ -736,7 +889,12 @@ impl<K: Kernel> MachiningEngine<K> {
     }
 
     /// Subtracts each piece of the swept volume from the overlapping cells in order, checks collisions, validates and commits.
-    fn apply(&mut self, plan: &SweepPlan<K::Solid>, started: Instant, mut diagnostics: Vec<String>) -> Result<CutReport> {
+    fn apply(
+        &mut self,
+        plan: &SweepPlan<K::Solid>,
+        started: Instant,
+        mut diagnostics: Vec<String>,
+    ) -> Result<CutReport> {
         let parts_before = self.cells.len();
         let bounds = plan.bounds;
         let candidates = self.candidates(&bounds);
@@ -862,7 +1020,10 @@ impl<K: Kernel> MachiningEngine<K> {
                             let simplified = self.kernel.simplify(&solid, self.options.simplify_tolerance)?;
                             let t = self.kernel.triangle_count(&simplified);
                             if t < triangles && !self.kernel.is_empty(&simplified) {
-                                diagnostics.push(format!("part {} simplified {} -> {} triangles", cell.id.0, triangles, t));
+                                diagnostics.push(format!(
+                                    "part {} simplified {} -> {} triangles",
+                                    cell.id.0, triangles, t
+                                ));
                                 volume = self.kernel.volume(&simplified);
                                 solid = simplified;
                                 triangles = t;
@@ -876,8 +1037,13 @@ impl<K: Kernel> MachiningEngine<K> {
         }
 
         let collision = if collision_volume > 0.0 {
-            diagnostics.push(format!("collision: non-cutting part intersects {collision_volume:.4} mm3 of stock"));
-            Some(Collision { volume: collision_volume, bounds: collision_bounds })
+            diagnostics.push(format!(
+                "collision: non-cutting part intersects {collision_volume:.4} mm3 of stock"
+            ));
+            Some(Collision {
+                volume: collision_volume,
+                bounds: collision_bounds,
+            })
         } else {
             None
         };
@@ -920,8 +1086,21 @@ impl<K: Kernel> MachiningEngine<K> {
         }
         self.next_id = next_id;
         self.revision = next_revision;
-        let outcome = if self.cells.is_empty() { CutOutcome::Exhausted } else { CutOutcome::Updated };
-        Ok(self.finish(outcome, changed, removed, started, parts_before, touched, collision, diagnostics))
+        let outcome = if self.cells.is_empty() {
+            CutOutcome::Exhausted
+        } else {
+            CutOutcome::Updated
+        };
+        Ok(self.finish(
+            outcome,
+            changed,
+            removed,
+            started,
+            parts_before,
+            touched,
+            collision,
+            diagnostics,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]

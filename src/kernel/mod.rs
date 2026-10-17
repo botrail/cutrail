@@ -10,6 +10,7 @@ use crate::sweep::SweptVolume;
 
 /// Summary of a solid.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SolidSummary {
     /// Bounding box
     pub bounds: Aabb,

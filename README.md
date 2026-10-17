@@ -1,5 +1,9 @@
 # cutrail
 
+[![crates.io](https://img.shields.io/crates/v/cutrail.svg)](https://crates.io/crates/cutrail)
+[![docs.rs](https://docs.rs/cutrail/badge.svg)](https://docs.rs/cutrail)
+[![CI](https://github.com/botrail/cutrail/actions/workflows/ci.yml/badge.svg)](https://github.com/botrail/cutrail/actions/workflows/ci.yml)
+
 English | [日本語](README.ja.md)
 
 A material removal simulation core for machining, written in Rust. The stock is kept as a triangle mesh and the volume swept by the tool is subtracted with robust mesh booleans. cutrail supports 3- and 5-axis milling, reads and writes STEP, STL, OBJ, glTF and 3MF, compares the result against a design model, and runs in WebAssembly.
@@ -17,8 +21,14 @@ A material removal simulation core for machining, written in Rust. The stock is 
 
 ```toml
 [dependencies]
-cutrail = { path = "path/to/cutrail" }   # not yet on crates.io
+cutrail = "0.1"
 ```
+
+| Cargo feature | Adds |
+|---|---|
+| `stepio` | Reading stock and design models from STEP (via truck) |
+| `serde` | `Serialize` / `Deserialize` for poses, segments, tools, options, reports, meshes and B-reps |
+| `parallel` | Parallel booleans in manifold-rust (native only) |
 
 ```rust
 use cutrail::{Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
@@ -85,6 +95,7 @@ let seg = MotionSegment::linear(
 - Analytic B-rep export covers horizontal moves, plunges and horizontal arcs of flat end mills in 3-axis machining; other surfaces are exported as facets.
 - Tolerance offsets in the design comparison use a polyhedral sphere, so very small tolerances need finer settings.
 - `SegmentBuilder` only emits linear segments; pass arcs explicitly as `MotionSegment::arc`.
+- The API is 0.x. `Kernel` and `ManifoldKernel` expose manifold-rust types, so a minor release may change them; `Engine` and the geometry types are the stable surface.
 
 ## Documentation
 
@@ -96,8 +107,9 @@ let seg = MotionSegment::linear(
 ## Development
 
 ```sh
-cargo test --release                      # unit and integration tests
-cargo test --release --features stepio    # including STEP import
+cargo test --release                            # unit and integration tests
+cargo test --release --features serde,stepio    # including serialization and STEP import
+cargo fmt --all --check && cargo clippy --release --workspace --all-targets --all-features -- -D warnings
 cargo run --release --example slot -- out.stl
 cargo run --release --example bench -- 10000 10 1 0 0 flat   # segments tile batch simplify tilt tool
 cargo run --release --example step_export -- out/            # sample shapes as STEP and STL

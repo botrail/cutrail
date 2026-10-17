@@ -32,9 +32,13 @@ fn zigzag(n: usize, tilt: f64) -> Vec<MotionSegment> {
             break;
         }
         for (ri, &y) in rows.iter().enumerate() {
-            let forward = (ri + level) % 2 == 0;
+            let forward = (ri + level).is_multiple_of(2);
             for i in 0..190 {
-                let (a, b) = if forward { (x0 + i as f64, x0 + i as f64 + 1.0) } else { (x1 - i as f64, x1 - i as f64 - 1.0) };
+                let (a, b) = if forward {
+                    (x0 + i as f64, x0 + i as f64 + 1.0)
+                } else {
+                    (x1 - i as f64, x1 - i as f64 - 1.0)
+                };
                 let k = out.len();
                 out.push(MotionSegment::linear(pose([a, y, z], k), pose([b, y, z], k + 1)));
                 if out.len() == n {
@@ -65,7 +69,9 @@ fn rss_mb() -> f64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|s| {
-            s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)?.parse::<f64>().ok())
+            s.lines()
+                .find(|l| l.starts_with("VmRSS:"))
+                .and_then(|l| l.split_whitespace().nth(1)?.parse::<f64>().ok())
         })
         .map(|kb| kb / 1024.0)
         .unwrap_or(f64::NAN)
@@ -86,11 +92,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if simplify > 0 {
         options.simplify_threshold = Some(simplify);
     }
-    let stock = StockShape::Box { min: [0.0; 3], max: [200.0, 100.0, 20.0] };
+    let stock = StockShape::Box {
+        min: [0.0; 3],
+        max: [200.0, 100.0, 20.0],
+    };
     let t_setup = Instant::now();
     let mut engine = Engine::new(ManifoldKernel, &[stock], options)?;
     let setup_ms = t_setup.elapsed().as_secs_f64() * 1000.0;
-    let tool = if tool_kind == "ball" { Tool::ball_end_mill(6.0, 20.0) } else { Tool::flat_end_mill(6.0, 20.0) };
+    let tool = if tool_kind == "ball" {
+        Tool::ball_end_mill(6.0, 20.0)
+    } else {
+        Tool::flat_end_mill(6.0, 20.0)
+    };
     let segments = zigzag(n, tilt);
 
     let mut times: Vec<Duration> = Vec::with_capacity(n / batch + 1);

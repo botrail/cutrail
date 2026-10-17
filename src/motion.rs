@@ -21,6 +21,7 @@ pub fn slerp(a: Vector3, b: Vector3, t: f64) -> Vector3 {
 
 /// Tool pose. Tools are bodies of revolution, so the tip position and axis direction define it.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pose {
     /// Position of the tip (center of the bottom of the cutting part)
     pub tip: Point3,
@@ -31,12 +32,18 @@ pub struct Pose {
 impl Pose {
     /// A pose with the axis along +Z (3-axis machining).
     pub fn vertical(tip: Point3) -> Pose {
-        Pose { tip, axis: [0.0, 0.0, 1.0] }
+        Pose {
+            tip,
+            axis: [0.0, 0.0, 1.0],
+        }
     }
 
     /// A pose from a tip position and an axis direction; the axis is normalized.
     pub fn new(tip: Point3, axis: Vector3) -> Pose {
-        Pose { tip, axis: normalize(axis).unwrap_or(axis) }
+        Pose {
+            tip,
+            axis: normalize(axis).unwrap_or(axis),
+        }
     }
 
     /// A pose whose axis is +Z tilted about the Y axis by `degrees`; positive angles lean toward +X.
@@ -78,7 +85,10 @@ impl Pose {
             return Err(Error::InvalidInput(format!("pose tip is not finite: {:?}", self.tip)));
         }
         if normalize(self.axis).is_none() || self.axis.iter().any(|v| !v.is_finite()) {
-            return Err(Error::InvalidInput(format!("pose axis is not a valid direction: {:?}", self.axis)));
+            return Err(Error::InvalidInput(format!(
+                "pose axis is not a valid direction: {:?}",
+                self.axis
+            )));
         }
         Ok(())
     }
@@ -86,6 +96,7 @@ impl Pose {
 
 /// A path segment.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum MotionSegment {
     /// Linear move: the tip travels in a straight line and the axis rotates spherically from start to end
@@ -112,6 +123,7 @@ pub enum MotionSegment {
 
 /// Arc geometry (internal).
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArcGeometry {
     /// In-plane unit vector from the center to the start point
     pub u: Vector3,
@@ -137,7 +149,12 @@ impl MotionSegment {
 
     /// Creates an arc move.
     pub fn arc(from: Pose, to: Pose, center: Point3, normal: Vector3) -> MotionSegment {
-        MotionSegment::Arc { from, to, center, normal }
+        MotionSegment::Arc {
+            from,
+            to,
+            center,
+            normal,
+        }
     }
 
     /// Start and end poses.
@@ -149,7 +166,13 @@ impl MotionSegment {
 
     /// Arc geometry, or `None` for a linear segment.
     pub fn arc_geometry(&self) -> Result<Option<ArcGeometry>> {
-        let MotionSegment::Arc { from, to, center, normal } = self else {
+        let MotionSegment::Arc {
+            from,
+            to,
+            center,
+            normal,
+        } = self
+        else {
             return Ok(None);
         };
         let n = normalize(*normal)
@@ -166,7 +189,9 @@ impl MotionSegment {
             return Err(Error::InvalidInput("arc start point coincides with the center".into()));
         }
         if (r1 - r0).abs() > 1e-6 * r0.max(1.0) {
-            return Err(Error::InvalidInput(format!("arc end point radius {r1} differs from start radius {r0}")));
+            return Err(Error::InvalidInput(format!(
+                "arc end point radius {r1} differs from start radius {r0}"
+            )));
         }
         let u = [p0[0] / r0, p0[1] / r0, p0[2] / r0];
         let v = cross(n, u);
@@ -174,7 +199,15 @@ impl MotionSegment {
         if angle <= 1e-9 {
             angle += TAU;
         }
-        Ok(Some(ArcGeometry { u, v, n, radius: r0, angle, h0, h1 }))
+        Ok(Some(ArcGeometry {
+            u,
+            v,
+            n,
+            radius: r0,
+            angle,
+            h0,
+            h1,
+        }))
     }
 
     /// Pose at parameter `t` (0 to 1) along the segment: the tip on the path, the axis by spherical interpolation.
@@ -191,7 +224,10 @@ impl MotionSegment {
                         center[1] + g.radius * (c * g.u[1] + s * g.v[1]) + g.n[1] * h,
                         center[2] + g.radius * (c * g.u[2] + s * g.v[2]) + g.n[2] * h,
                     ];
-                    Pose { tip, axis: slerp(from.axis, to.axis, t) }
+                    Pose {
+                        tip,
+                        axis: slerp(from.axis, to.axis, t),
+                    }
                 }
                 _ => Pose::lerp(from, to, t),
             },

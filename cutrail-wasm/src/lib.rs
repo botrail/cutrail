@@ -34,13 +34,22 @@ impl WasmEngine {
         if min.len() != 3 || max.len() != 3 {
             return Err(JsError::new("min and max must have 3 components"));
         }
-        let mut options = EngineOptions { sweep_tolerance, ..Default::default() };
+        let mut options = EngineOptions {
+            sweep_tolerance,
+            ..Default::default()
+        };
         if tile_size > 0.0 {
             options.tile_size = Some(tile_size);
         }
-        let stock = StockShape::Box { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] };
+        let stock = StockShape::Box {
+            min: [min[0], min[1], min[2]],
+            max: [max[0], max[1], max[2]],
+        };
         let inner = Engine::new(ManifoldKernel, &[stock], options).map_err(js_err)?;
-        Ok(WasmEngine { inner, tool: Tool::flat_end_mill(tool_diameter, flute_length) })
+        Ok(WasmEngine {
+            inner,
+            tool: Tool::flat_end_mill(tool_diameter, flute_length),
+        })
     }
 
     /// Switches the tool to a flat end mill.
@@ -55,7 +64,7 @@ impl WasmEngine {
 
     /// Cuts the segments in order and returns the total removed volume. Segments before a failure are committed.
     pub fn cut_many(&mut self, segments: &[f64]) -> Result<f64, JsError> {
-        if segments.len() % 12 != 0 {
+        if !segments.len().is_multiple_of(12) {
             return Err(JsError::new("segments must be a multiple of 12 numbers"));
         }
         let mut removed = 0.0;
@@ -64,7 +73,10 @@ impl WasmEngine {
                 Pose::new([s[0], s[1], s[2]], [s[3], s[4], s[5]]),
                 Pose::new([s[6], s[7], s[8]], [s[9], s[10], s[11]]),
             );
-            let report = self.inner.cut(&self.tool, &seg).map_err(|e| JsError::new(&format!("segment {i}: {e}")))?;
+            let report = self
+                .inner
+                .cut(&self.tool, &seg)
+                .map_err(|e| JsError::new(&format!("segment {i}: {e}")))?;
             removed += report.removed_volume;
         }
         Ok(removed)
@@ -92,7 +104,11 @@ impl WasmEngine {
 
     /// Identifiers of cells changed after `revision`.
     pub fn changed_since(&self, revision: f64) -> Vec<u32> {
-        self.inner.changed_since(revision as u64).iter().map(|id| id.0).collect()
+        self.inner
+            .changed_since(revision as u64)
+            .iter()
+            .map(|id| id.0)
+            .collect()
     }
 
     /// Vertex positions of a cell as flat xyz f32; empty if the cell does not exist.

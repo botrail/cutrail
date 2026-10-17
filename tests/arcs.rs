@@ -9,7 +9,12 @@ use std::f64::consts::PI;
 fn quarter_arc_matches_grid() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(2.0, 6.0);
-    let seg = MotionSegment::arc(Pose::vertical([8.0, 5.0, 6.0]), Pose::vertical([5.0, 8.0, 6.0]), [5.0, 5.0, 6.0], [0.0, 0.0, 1.0]);
+    let seg = MotionSegment::arc(
+        Pose::vertical([8.0, 5.0, 6.0]),
+        Pose::vertical([5.0, 8.0, 6.0]),
+        [5.0, 5.0, 6.0],
+        [0.0, 0.0, 1.0],
+    );
     let v = swept_volume(&tool, &seg, 0.01).unwrap();
     assert!(v.piece_count() > 4, "arc must be chord-subdivided: {}", v.piece_count());
     let r = e.cut(&tool, &seg).unwrap();
@@ -27,15 +32,30 @@ fn full_circle_matches_analytic() {
     let seg = MotionSegment::arc(p, p, [5.0, 5.0, 6.0], [0.0, 0.0, 1.0]);
     let r = e.cut(&tool, &seg).unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated, "{:?}", r.diagnostics);
-    assert_close(r.removed_volume, PI * (16.0 - 4.0) * 4.0, 1e-2, "full circle removed volume");
+    assert_close(
+        r.removed_volume,
+        PI * (16.0 - 4.0) * 4.0,
+        1e-2,
+        "full circle removed volume",
+    );
 }
 
 #[test]
 fn clockwise_arc_via_flipped_normal() {
     // Flipping the normal reverses the direction; a quarter turn removes the same volume either way
     let tool = Tool::flat_end_mill(2.0, 6.0);
-    let ccw = MotionSegment::arc(Pose::vertical([8.0, 5.0, 6.0]), Pose::vertical([5.0, 8.0, 6.0]), [5.0, 5.0, 6.0], [0.0, 0.0, 1.0]);
-    let cw = MotionSegment::arc(Pose::vertical([5.0, 8.0, 6.0]), Pose::vertical([8.0, 5.0, 6.0]), [5.0, 5.0, 6.0], [0.0, 0.0, -1.0]);
+    let ccw = MotionSegment::arc(
+        Pose::vertical([8.0, 5.0, 6.0]),
+        Pose::vertical([5.0, 8.0, 6.0]),
+        [5.0, 5.0, 6.0],
+        [0.0, 0.0, 1.0],
+    );
+    let cw = MotionSegment::arc(
+        Pose::vertical([5.0, 8.0, 6.0]),
+        Pose::vertical([8.0, 5.0, 6.0]),
+        [5.0, 5.0, 6.0],
+        [0.0, 0.0, -1.0],
+    );
     let mut a = cube10(EngineOptions::default());
     let mut b = cube10(EngineOptions::default());
     let ra = a.cut(&tool, &ccw).unwrap();
@@ -49,7 +69,12 @@ fn clockwise_arc_via_flipped_normal() {
 fn helical_descent_matches_grid() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(2.0, 6.0);
-    let seg = MotionSegment::arc(Pose::vertical([8.0, 5.0, 10.0]), Pose::vertical([5.0, 8.0, 8.0]), [5.0, 5.0, 9.0], [0.0, 0.0, 1.0]);
+    let seg = MotionSegment::arc(
+        Pose::vertical([8.0, 5.0, 10.0]),
+        Pose::vertical([5.0, 8.0, 8.0]),
+        [5.0, 5.0, 9.0],
+        [0.0, 0.0, 1.0],
+    );
     let r = e.cut(&tool, &seg).unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated, "{:?}", r.diagnostics);
     let expected = grid_removed(&tool, std::slice::from_ref(&seg), 256, 0.05);
@@ -58,6 +83,11 @@ fn helical_descent_matches_grid() {
 
 #[test]
 fn arc_with_mismatched_radius_is_rejected() {
-    let seg = MotionSegment::arc(Pose::vertical([8.0, 5.0, 6.0]), Pose::vertical([5.0, 9.0, 6.0]), [5.0, 5.0, 6.0], [0.0, 0.0, 1.0]);
+    let seg = MotionSegment::arc(
+        Pose::vertical([8.0, 5.0, 6.0]),
+        Pose::vertical([5.0, 9.0, 6.0]),
+        [5.0, 5.0, 6.0],
+        [0.0, 0.0, 1.0],
+    );
     assert!(seg.validate().is_err());
 }

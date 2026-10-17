@@ -9,10 +9,19 @@ use cutrail::{Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockS
 fn through_slot_is_all_planes_and_lines() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(4.0, 6.0);
-    e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, -5.0, 6.0]), Pose::vertical([5.0, 15.0, 6.0]))).unwrap();
+    e.cut(
+        &tool,
+        &MotionSegment::linear(Pose::vertical([5.0, -5.0, 6.0]), Pose::vertical([5.0, 15.0, 6.0])),
+    )
+    .unwrap();
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-6).unwrap();
-    assert_eq!(b.surface_counts(), (10, 0), "faces: {:?}", b.faces.iter().map(|f| f.triangles).collect::<Vec<_>>());
+    assert_eq!(
+        b.surface_counts(),
+        (10, 0),
+        "faces: {:?}",
+        b.faces.iter().map(|f| f.triangles).collect::<Vec<_>>()
+    );
     let (lines, circles, polylines) = b.curve_counts();
     assert_eq!((circles, polylines), (0, 0));
     assert_eq!(lines, b.edges.len());
@@ -22,7 +31,12 @@ fn through_slot_is_all_planes_and_lines() {
         .faces
         .iter()
         .filter_map(|f| match &f.surface {
-            Surface::Plane { origin, normal } if normal[0].abs() > 0.999 && (origin[0] - 3.0).abs() < 1e-9 || normal[0].abs() > 0.999 && (origin[0] - 7.0).abs() < 1e-9 => Some(origin[0]),
+            Surface::Plane { origin, normal }
+                if normal[0].abs() > 0.999 && (origin[0] - 3.0).abs() < 1e-9
+                    || normal[0].abs() > 0.999 && (origin[0] - 7.0).abs() < 1e-9 =>
+            {
+                Some(origin[0])
+            }
             _ => None,
         })
         .collect();
@@ -33,7 +47,11 @@ fn through_slot_is_all_planes_and_lines() {
 fn plunge_hole_reconstructs_cylinder_halves_and_arcs() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(4.0, 6.0);
-    e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0]))).unwrap();
+    e.cut(
+        &tool,
+        &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0])),
+    )
+    .unwrap();
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-6).unwrap();
     assert_eq!(b.surface_counts(), (7, 2));
@@ -62,7 +80,11 @@ fn plunge_hole_reconstructs_cylinder_halves_and_arcs() {
 fn stadium_slot_has_two_half_cylinders() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(3.0, 6.0);
-    e.cut(&tool, &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0]))).unwrap();
+    e.cut(
+        &tool,
+        &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0])),
+    )
+    .unwrap();
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-6).unwrap();
     assert_eq!(b.surface_counts(), (9, 2));
@@ -76,12 +98,17 @@ fn stadium_slot_has_two_half_cylinders() {
         .faces
         .iter()
         .filter_map(|f| match &f.surface {
-            Surface::Plane { origin, normal } if normal[1].abs() > 0.999 && (origin[1] - 5.0).abs() < 2.0 => Some(origin[1]),
+            Surface::Plane { origin, normal } if normal[1].abs() > 0.999 && (origin[1] - 5.0).abs() < 2.0 => {
+                Some(origin[1])
+            }
             _ => None,
         })
         .collect();
     assert_eq!(walls.len(), 2);
-    assert!(walls.iter().any(|&y| (y - 3.5).abs() < 1e-9) && walls.iter().any(|&y| (y - 6.5).abs() < 1e-9), "{walls:?}");
+    assert!(
+        walls.iter().any(|&y| (y - 3.5).abs() < 1e-9) && walls.iter().any(|&y| (y - 6.5).abs() < 1e-9),
+        "{walls:?}"
+    );
 }
 
 #[test]
@@ -90,7 +117,11 @@ fn pocket_from_overlapping_passes_merges_the_floor() {
     let tool = Tool::flat_end_mill(3.0, 6.0);
     for (i, y) in [3.0, 5.0, 7.0].iter().enumerate() {
         let (a, b) = if i % 2 == 0 { (3.0, 7.0) } else { (7.0, 3.0) };
-        e.cut(&tool, &MotionSegment::linear(Pose::vertical([a, *y, 7.0]), Pose::vertical([b, *y, 7.0]))).unwrap();
+        e.cut(
+            &tool,
+            &MotionSegment::linear(Pose::vertical([a, *y, 7.0]), Pose::vertical([b, *y, 7.0])),
+        )
+        .unwrap();
     }
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-6).unwrap();
@@ -120,7 +151,11 @@ fn tiled_engine_reconstructs_the_same_topology() {
 fn ball_end_mill_falls_back_to_facets_but_stays_valid() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::ball_end_mill(4.0, 6.0);
-    e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0]))).unwrap();
+    e.cut(
+        &tool,
+        &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0])),
+    )
+    .unwrap();
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-6).unwrap();
     assert_eq!(b.surface_counts().1, 0);
@@ -134,7 +169,11 @@ fn ball_end_mill_falls_back_to_facets_but_stays_valid() {
 fn step_text_has_expected_entities() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(4.0, 6.0);
-    e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0]))).unwrap();
+    e.cut(
+        &tool,
+        &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0])),
+    )
+    .unwrap();
     let mut buf = Vec::new();
     e.write_step(&mut buf, "hole").unwrap();
     let text = String::from_utf8(buf).unwrap();
@@ -155,8 +194,16 @@ fn step_reads_back_with_matching_volume() {
     let mut e = cube10(EngineOptions::default());
     let slot_tool = Tool::flat_end_mill(3.0, 6.0);
     let hole_tool = Tool::flat_end_mill(2.0, 6.0);
-    e.cut(&slot_tool, &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0]))).unwrap();
-    e.cut(&hole_tool, &MotionSegment::linear(Pose::vertical([5.0, 2.0, 10.0]), Pose::vertical([5.0, 2.0, 8.0]))).unwrap();
+    e.cut(
+        &slot_tool,
+        &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0])),
+    )
+    .unwrap();
+    e.cut(
+        &hole_tool,
+        &MotionSegment::linear(Pose::vertical([5.0, 2.0, 10.0]), Pose::vertical([5.0, 2.0, 8.0])),
+    )
+    .unwrap();
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-6).unwrap();
     assert_eq!(b.surface_counts(), (10, 4));
@@ -167,16 +214,30 @@ fn step_reads_back_with_matching_volume() {
     assert_eq!(meshes.len(), 1);
     let mut mesh = meshes.into_iter().next().unwrap();
     mesh.merge_vertices(1e-3);
-    assert_close(mesh.signed_volume().abs(), e.total_volume(), 1e-2, "volume of STEP read back");
+    assert_close(
+        mesh.signed_volume().abs(),
+        e.total_volume(),
+        1e-2,
+        "volume of STEP read back",
+    );
     let stock = Engine::new(ManifoldKernel, &[StockShape::Mesh(mesh)], EngineOptions::default()).unwrap();
-    assert_close(stock.total_volume(), e.total_volume(), 1e-2, "STEP mesh is a closed manifold");
+    assert_close(
+        stock.total_volume(),
+        e.total_volume(),
+        1e-2,
+        "STEP mesh is a closed manifold",
+    );
 }
 
 #[test]
 fn tangent_walls_meet_end_cylinders_on_a_line() {
     // The walls of a slot are tangent to its end cylinders: the shared edges must come out as exact vertical lines.
     let mut e = cube10(EngineOptions::default());
-    e.cut(&Tool::flat_end_mill(3.0, 6.0), &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0]))).unwrap();
+    e.cut(
+        &Tool::flat_end_mill(3.0, 6.0),
+        &MotionSegment::linear(Pose::vertical([3.0, 5.0, 6.0]), Pose::vertical([7.0, 5.0, 6.0])),
+    )
+    .unwrap();
     let b = e.reconstruct_brep().unwrap();
     b.check(1e-9).unwrap();
     assert_eq!(b.curve_counts().2, 0, "no polyline fallback on tangent edges");
@@ -187,21 +248,27 @@ fn tiled_zigzag_pocket_is_consistent() {
     // Rows that overlap and connecting moves whose walls are tangent to the row ends, across tile seams.
     let mut e = Engine::new(
         ManifoldKernel,
-        &[StockShape::Box { min: [0.0; 3], max: [30.0, 30.0, 10.0] }],
+        &[StockShape::Box {
+            min: [0.0; 3],
+            max: [30.0, 30.0, 10.0],
+        }],
         EngineOptions::default().with_tile_size(10.0),
     )
     .unwrap();
     let tool = Tool::flat_end_mill(6.0, 10.0);
     let v = Pose::vertical;
-    e.cut(&tool, &MotionSegment::linear(v([6.0, 6.0, 10.0]), v([6.0, 6.0, 7.0]))).unwrap();
+    e.cut(&tool, &MotionSegment::linear(v([6.0, 6.0, 10.0]), v([6.0, 6.0, 7.0])))
+        .unwrap();
     let rows = [6.0, 10.0, 14.0, 18.0, 22.0];
     let mut x = 6.0;
     for (i, y) in rows.iter().enumerate() {
         let to = if x == 6.0 { 24.0 } else { 6.0 };
-        e.cut(&tool, &MotionSegment::linear(v([x, *y, 7.0]), v([to, *y, 7.0]))).unwrap();
+        e.cut(&tool, &MotionSegment::linear(v([x, *y, 7.0]), v([to, *y, 7.0])))
+            .unwrap();
         x = to;
         if let Some(next) = rows.get(i + 1) {
-            e.cut(&tool, &MotionSegment::linear(v([x, *y, 7.0]), v([x, *next, 7.0]))).unwrap();
+            e.cut(&tool, &MotionSegment::linear(v([x, *y, 7.0]), v([x, *next, 7.0])))
+                .unwrap();
         }
     }
     let b = e.reconstruct_brep().unwrap();
@@ -211,10 +278,23 @@ fn tiled_zigzag_pocket_is_consistent() {
 
 #[test]
 fn horizontal_arc_walls_are_cylinders_about_the_center() {
-    let mut e = Engine::new(ManifoldKernel, &[StockShape::Box { min: [0.0; 3], max: [20.0; 3] }], EngineOptions::default()).unwrap();
+    let mut e = Engine::new(
+        ManifoldKernel,
+        &[StockShape::Box {
+            min: [0.0; 3],
+            max: [20.0; 3],
+        }],
+        EngineOptions::default(),
+    )
+    .unwrap();
     e.cut(
         &Tool::flat_end_mill(4.0, 6.0),
-        &MotionSegment::arc(Pose::vertical([5.0, 10.0, 17.0]), Pose::vertical([15.0, 10.0, 17.0]), [10.0, 10.0, 17.0], [0.0, 0.0, 1.0]),
+        &MotionSegment::arc(
+            Pose::vertical([5.0, 10.0, 17.0]),
+            Pose::vertical([15.0, 10.0, 17.0]),
+            [10.0, 10.0, 17.0],
+            [0.0, 0.0, 1.0],
+        ),
     )
     .unwrap();
     let b = e.reconstruct_brep().unwrap();
@@ -223,10 +303,17 @@ fn horizontal_arc_walls_are_cylinders_about_the_center() {
     assert_eq!(planes, 7, "6 stock faces and one floor");
     let outer = b.faces.iter().filter(|f| matches!(&f.surface, Surface::Cylinder { center, radius } if (center[0] - 10.0).abs() < 1e-9 && (radius - 7.0).abs() < 1e-9)).count();
     let inner = b.faces.iter().filter(|f| matches!(&f.surface, Surface::Cylinder { center, radius } if (center[0] - 10.0).abs() < 1e-9 && (radius - 3.0).abs() < 1e-9)).count();
-    assert!(outer >= 1 && inner >= 1, "walls about the arc center: outer {outer} inner {inner} of {cylinders}");
+    assert!(
+        outer >= 1 && inner >= 1,
+        "walls about the arc center: outer {outer} inner {inner} of {cylinders}"
+    );
     assert_eq!(b.curve_counts().2, 0, "no polyline fallback");
     // The analytic volume: a half annulus (7^2 - 3^2) * pi / 2 plus two half-disks of radius 2, 3 mm deep.
     let removed = (49.0 - 9.0) * std::f64::consts::PI / 2.0 + std::f64::consts::PI * 4.0;
     let expected = 8000.0 - removed * 3.0;
-    assert!((e.total_volume() - expected).abs() / expected < 5e-3, "mesh volume {} vs analytic {expected}", e.total_volume());
+    assert!(
+        (e.total_volume() - expected).abs() / expected < 5e-3,
+        "mesh volume {} vs analytic {expected}",
+        e.total_volume()
+    );
 }

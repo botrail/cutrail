@@ -14,6 +14,7 @@ use std::io::{self, Write};
 
 /// Where a triangle came from.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum Source {
     /// The stock
@@ -52,6 +53,7 @@ pub enum Source {
 
 /// An analytic surface.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Surface {
     /// A plane; `normal` points out of the material
     Plane {
@@ -71,6 +73,7 @@ pub enum Surface {
 
 /// Curve of an edge.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Curve {
     /// Straight line from start to end
     Line,
@@ -91,6 +94,7 @@ pub enum Curve {
 
 /// An edge.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Edge {
     /// Index of the start vertex
     pub start: usize,
@@ -102,6 +106,7 @@ pub struct Edge {
 
 /// A face. `loops[outer]` is the outer boundary, the rest are holes. Each loop is a sequence of (edge index, forward).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Face {
     /// Analytic surface
     pub surface: Surface,
@@ -117,6 +122,7 @@ pub struct Face {
 
 /// A reconstructed B-rep.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Brep {
     /// Vertices
     pub vertices: Vec<Point3>,
@@ -142,13 +148,22 @@ fn q(x: f64) -> i64 {
 fn plane_key(normal: Vector3, point: Point3) -> (Key, Surface) {
     let n = normalize(normal).unwrap_or([0.0, 0.0, 1.0]);
     let d = dot(n, point);
-    let key = Key::Plane { n: [q(n[0]), q(n[1]), q(n[2])], d: q(d) };
+    let key = Key::Plane {
+        n: [q(n[0]), q(n[1]), q(n[2])],
+        d: q(d),
+    };
     let origin = [n[0] * d, n[1] * d, n[2] * d];
     (key, Surface::Plane { origin, normal: n })
 }
 
 fn cylinder_key(center: [f64; 2], radius: f64) -> (Key, Surface) {
-    (Key::Cylinder { c: [q(center[0]), q(center[1])], r: q(radius) }, Surface::Cylinder { center, radius })
+    (
+        Key::Cylinder {
+            c: [q(center[0]), q(center[1])],
+            r: q(radius),
+        },
+        Surface::Cylinder { center, radius },
+    )
 }
 
 fn triangle_normal(mesh: &TriMesh, t: [u32; 3]) -> Vector3 {
@@ -162,14 +177,24 @@ fn centroid(mesh: &TriMesh, t: [u32; 3]) -> Point3 {
     let a = mesh.positions[t[0] as usize];
     let b = mesh.positions[t[1] as usize];
     let c = mesh.positions[t[2] as usize];
-    [(a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0, (a[2] + b[2] + c[2]) / 3.0]
+    [
+        (a[0] + b[0] + c[0]) / 3.0,
+        (a[1] + b[1] + c[1]) / 3.0,
+        (a[2] + b[2] + c[2]) / 3.0,
+    ]
 }
 
 /// Classifies a triangle from its provenance and geometry.
 fn classify(mesh: &TriMesh, t: [u32; 3], source: &Source, tol: f64) -> (Key, Surface) {
     let n = triangle_normal(mesh, t);
     let c = centroid(mesh, t);
-    if let Source::FlatSweep { radius, mesh_radius, from, to } = source {
+    if let Source::FlatSweep {
+        radius,
+        mesh_radius,
+        from,
+        to,
+    } = source
+    {
         let vertical = n[2].abs() > 0.999;
         let same_level = (from.tip[2] - to.tip[2]).abs() < 1e-9;
         let d = [to.tip[0] - from.tip[0], to.tip[1] - from.tip[1]];
@@ -185,7 +210,10 @@ fn classify(mesh: &TriMesh, t: [u32; 3], source: &Source, tol: f64) -> (Key, Sur
             // The polygon of the mesh is within this distance of the true circle
             let cap_tol = tol + (mesh_radius - radius).abs();
             let xy = |v: u32| [mesh.positions[v as usize][0], mesh.positions[v as usize][1]];
-            let on_circle = |tip: Point3| t.iter().all(|&v| (norm([xy(v)[0] - tip[0], xy(v)[1] - tip[1], 0.0]) - mesh_radius).abs() < cap_tol);
+            let on_circle = |tip: Point3| {
+                t.iter()
+                    .all(|&v| (norm([xy(v)[0] - tip[0], xy(v)[1] - tip[1], 0.0]) - mesh_radius).abs() < cap_tol)
+            };
             if plunge {
                 return cylinder_key([from.tip[0], from.tip[1]], *radius);
             }
@@ -195,11 +223,17 @@ fn classify(mesh: &TriMesh, t: [u32; 3], source: &Source, tol: f64) -> (Key, Sur
                 // Straight side wall: every vertex at the polygon's distance from the path, on one side
                 let side = |v: u32| (xy(v)[0] - from.tip[0]) * left[0] + (xy(v)[1] - from.tip[1]) * left[1];
                 let sides: Vec<f64> = t.iter().map(|&v| side(v)).collect();
-                if sides.iter().all(|s| (s.abs() - mesh_radius).abs() < cap_tol) && sides.iter().all(|s| s.signum() == sides[0].signum()) {
+                if sides.iter().all(|s| (s.abs() - mesh_radius).abs() < cap_tol)
+                    && sides.iter().all(|s| s.signum() == sides[0].signum())
+                {
                     // The true wall is the plane at radius r from the path
                     let sign = sides[0].signum();
                     let normal = [left[0] * sign, left[1] * sign, 0.0];
-                    let point = [from.tip[0] + left[0] * sign * radius, from.tip[1] + left[1] * sign * radius, c[2]];
+                    let point = [
+                        from.tip[0] + left[0] * sign * radius,
+                        from.tip[1] + left[1] * sign * radius,
+                        c[2],
+                    ];
                     return plane_key(normal, point);
                 }
             }
@@ -211,7 +245,16 @@ fn classify(mesh: &TriMesh, t: [u32; 3], source: &Source, tol: f64) -> (Key, Sur
             }
         }
     }
-    if let Source::ArcSweep { radius, mesh_radius, center, arc_radius, chord_sagitta, from, to } = source {
+    if let Source::ArcSweep {
+        radius,
+        mesh_radius,
+        center,
+        arc_radius,
+        chord_sagitta,
+        from,
+        to,
+    } = source
+    {
         if n[2].abs() > 0.999 {
             let floor = from.tip[2].min(to.tip[2]);
             let z = if (c[2] - floor).abs() < tol { floor } else { c[2] };
@@ -222,16 +265,23 @@ fn classify(mesh: &TriMesh, t: [u32; 3], source: &Source, tol: f64) -> (Key, Sur
             let dist = |v: u32, p: [f64; 2]| norm([xy(v)[0] - p[0], xy(v)[1] - p[1], 0.0]);
             // Walls: the chords and the bulges at the sample poses all lie within the sagitta of the true cylinders
             let wall_tol = tol + (mesh_radius - radius).abs() + chord_sagitta;
-            if t.iter().all(|&v| (dist(v, *center) - (arc_radius + radius)).abs() < wall_tol) {
+            if t.iter()
+                .all(|&v| (dist(v, *center) - (arc_radius + radius)).abs() < wall_tol)
+            {
                 return cylinder_key(*center, arc_radius + radius);
             }
-            if arc_radius > radius && t.iter().all(|&v| (dist(v, *center) - (arc_radius - radius)).abs() < wall_tol) {
+            if arc_radius > radius
+                && t.iter()
+                    .all(|&v| (dist(v, *center) - (arc_radius - radius)).abs() < wall_tol)
+            {
                 return cylinder_key(*center, arc_radius - radius);
             }
             // End caps: the tool cylinders at the ends of the arc
             let cap_tol = tol + (mesh_radius - radius).abs();
             for tip in [from.tip, to.tip] {
-                if t.iter().all(|&v| (dist(v, [tip[0], tip[1]]) - mesh_radius).abs() < cap_tol) {
+                if t.iter()
+                    .all(|&v| (dist(v, [tip[0], tip[1]]) - mesh_radius).abs() < cap_tol)
+                {
                     return cylinder_key([tip[0], tip[1]], *radius);
                 }
             }
@@ -269,7 +319,11 @@ impl UnionFind {
 }
 
 fn edge_key(a: u32, b: u32) -> (u32, u32) {
-    if a < b { (a, b) } else { (b, a) }
+    if a < b {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 fn angle_about(center: [f64; 2], p: Point3) -> f64 {
@@ -294,15 +348,23 @@ fn tangent_constraints(surfaces: &[&Surface]) -> Vec<Surface> {
                     }
                     let d = normal[0] * (center[0] - origin[0]) + normal[1] * (center[1] - origin[1]);
                     if (d.abs() - radius).abs() < TANGENT_TOL {
-                        out.push(Surface::Plane { origin: [center[0], center[1], 0.0], normal: [-normal[1], normal[0], 0.0] });
+                        out.push(Surface::Plane {
+                            origin: [center[0], center[1], 0.0],
+                            normal: [-normal[1], normal[0], 0.0],
+                        });
                     }
                 }
                 (Surface::Cylinder { center: c1, radius: r1 }, Surface::Cylinder { center: c2, radius: r2 }) => {
                     let dx = c2[0] - c1[0];
                     let dy = c2[1] - c1[1];
                     let d = (dx * dx + dy * dy).sqrt();
-                    if d > TANGENT_TOL && ((d - (r1 + r2)).abs() < TANGENT_TOL || (d - (r1 - r2).abs()).abs() < TANGENT_TOL) {
-                        out.push(Surface::Plane { origin: [c1[0], c1[1], 0.0], normal: [-dy / d, dx / d, 0.0] });
+                    if d > TANGENT_TOL
+                        && ((d - (r1 + r2)).abs() < TANGENT_TOL || (d - (r1 - r2).abs()).abs() < TANGENT_TOL)
+                    {
+                        out.push(Surface::Plane {
+                            origin: [c1[0], c1[1], 0.0],
+                            normal: [-dy / d, dx / d, 0.0],
+                        });
                     }
                 }
                 _ => {}
@@ -379,7 +441,12 @@ fn fit_curve(chain: &[Point3], a: &Surface, b: &Surface, start: Point3, end: Poi
                     }
                     total += d;
                 }
-                Curve::Circle { center: *center, z, radius: *radius, ccw: total >= 0.0 }
+                Curve::Circle {
+                    center: *center,
+                    z,
+                    radius: *radius,
+                    ccw: total >= 0.0,
+                }
             } else if (start[0] - end[0]).abs() < tol && (start[1] - end[1]).abs() < tol {
                 Curve::Line
             } else {
@@ -490,19 +557,28 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
     let original_patch_count = patch_count;
     for p in 0..original_patch_count {
         let Key::Cylinder { .. } = patch_key[p] else { continue };
-        let Surface::Cylinder { center, .. } = surfaces[&patch_key[p]].clone() else { continue };
+        let Surface::Cylinder { center, .. } = surfaces[&patch_key[p]].clone() else {
+            continue;
+        };
         let members: Vec<usize> = (0..n_tri).filter(|&i| patch_of[i] == p).collect();
         if members.len() < 2 {
             continue;
         }
-        let mut angles: Vec<(f64, usize)> = members.iter().map(|&i| (angle_about(center, centroid(mesh, mesh.triangles[i])), i)).collect();
+        let mut angles: Vec<(f64, usize)> = members
+            .iter()
+            .map(|&i| (angle_about(center, centroid(mesh, mesh.triangles[i])), i))
+            .collect();
         angles.sort_by(|a, b| a.0.total_cmp(&b.0));
         let m = angles.len();
         let mut gap_max = 0.0;
         let mut gap_at = 0;
         for k in 0..m {
             let a0 = angles[k].0;
-            let a1 = if k + 1 < m { angles[k + 1].0 } else { angles[0].0 + std::f64::consts::TAU };
+            let a1 = if k + 1 < m {
+                angles[k + 1].0
+            } else {
+                angles[0].0 + std::f64::consts::TAU
+            };
             if a1 - a0 > gap_max {
                 gap_max = a1 - a0;
                 gap_at = k;
@@ -570,7 +646,10 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
                 if cb == a {
                     break;
                 }
-                let Some(next) = outgoing.get(&(p, cb)).and_then(|bs| bs.iter().copied().find(|&n| !used.contains(&(cb, n)))) else {
+                let Some(next) = outgoing
+                    .get(&(p, cb))
+                    .and_then(|bs| bs.iter().copied().find(|&n| !used.contains(&(cb, n))))
+                else {
                     break;
                 };
                 ca = cb;
@@ -585,7 +664,11 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
             }
         }
     }
-    let mut is_corner: HashSet<u32> = vertex_patches.iter().filter(|(_, ps)| ps.len() >= 3).map(|(&v, _)| v).collect();
+    let mut is_corner: HashSet<u32> = vertex_patches
+        .iter()
+        .filter(|(_, ps)| ps.len() >= 3)
+        .map(|(&v, _)| v)
+        .collect();
     for lps in &loops_of_patch {
         for lp in lps {
             if lp.iter().filter(|v| is_corner.contains(v)).count() < 2 {
@@ -603,7 +686,10 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
         if let Some(&i) = vertex_index.get(&v) {
             return i;
         }
-        let surfs: Vec<&Surface> = vertex_patches.get(&v).map(|ps| ps.iter().map(|&p| patch_surface(p)).collect()).unwrap_or_default();
+        let surfs: Vec<&Surface> = vertex_patches
+            .get(&v)
+            .map(|ps| ps.iter().map(|&p| patch_surface(p)).collect())
+            .unwrap_or_default();
         let p = snap(mesh.positions[v as usize], &surfs);
         brep.vertices.push(p);
         vertex_index.insert(v, brep.vertices.len() - 1);
@@ -640,7 +726,9 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
         let mut loop_areas: Vec<f64> = Vec::new();
         for lp in &loops_of_patch[p] {
             let m = lp.len();
-            let Some(first_corner) = (0..m).find(|&k| is_corner.contains(&lp[k])) else { continue };
+            let Some(first_corner) = (0..m).find(|&k| is_corner.contains(&lp[k])) else {
+                continue;
+            };
             let rotated: Vec<u32> = (0..m).map(|k| lp[(first_corner + k) % m]).collect();
             let mut chains: Vec<Vec<u32>> = Vec::new();
             let mut current = vec![rotated[0]];
@@ -656,7 +744,11 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
                 let canonical = {
                     let mut rev = chain.clone();
                     rev.reverse();
-                    if rev < *chain { rev } else { chain.clone() }
+                    if rev < *chain {
+                        rev
+                    } else {
+                        chain.clone()
+                    }
                 };
                 let forward = canonical == *chain;
                 let idx = if let Some(&e) = edge_index.get(&canonical) {
@@ -683,7 +775,11 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
                         let free = |v: u32| {
                             vertex_patches
                                 .get(&v)
-                                .map(|ps| ps.iter().all(|&q| *patch_surface(q) == surface || is_horizontal(patch_surface(q)).is_some()))
+                                .map(|ps| {
+                                    ps.iter().all(|&q| {
+                                        *patch_surface(q) == surface || is_horizontal(patch_surface(q)).is_some()
+                                    })
+                                })
                                 .unwrap_or(false)
                         };
                         let mut align = |target: usize, reference: usize| {
@@ -699,8 +795,18 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
                             align(start, end);
                         }
                     }
-                    let pts: Vec<Point3> = canonical.iter().map(|&v| snap(mesh.positions[v as usize], &[&surface, &other_surface])).collect();
-                    let curve = fit_curve(&pts, &surface, &other_surface, brep.vertices[start], brep.vertices[end], tol);
+                    let pts: Vec<Point3> = canonical
+                        .iter()
+                        .map(|&v| snap(mesh.positions[v as usize], &[&surface, &other_surface]))
+                        .collect();
+                    let curve = fit_curve(
+                        &pts,
+                        &surface,
+                        &other_surface,
+                        brep.vertices[start],
+                        brep.vertices[end],
+                        tol,
+                    );
                     brep.edges.push(Edge { start, end, curve });
                     edge_index.insert(canonical, brep.edges.len() - 1);
                     brep.edges.len() - 1
@@ -748,8 +854,19 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
         if face_loops.is_empty() {
             continue;
         }
-        let outer = loop_areas.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map(|(k, _)| k).unwrap_or(0);
-        brep.faces.push(Face { surface, same_sense, loops: face_loops, outer, triangles: patch_tri_count[p] });
+        let outer = loop_areas
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(k, _)| k)
+            .unwrap_or(0);
+        brep.faces.push(Face {
+            surface,
+            same_sense,
+            loops: face_loops,
+            outer,
+            triangles: patch_tri_count[p],
+        });
     }
     if brep.faces.is_empty() {
         return Err(Error::Validation("no faces reconstructed".into()));
@@ -760,7 +877,11 @@ pub fn reconstruct(mesh: &TriMesh, source_ids: &[u32], sources: &HashMap<u32, So
 
 /// Quantized cell of a point, for grouping coincident vertices.
 fn cell_of(p: Point3, tol: f64) -> (i64, i64, i64) {
-    ((p[0] / tol).floor() as i64, (p[1] / tol).floor() as i64, (p[2] / tol).floor() as i64)
+    (
+        (p[0] / tol).floor() as i64,
+        (p[1] / tol).floor() as i64,
+        (p[2] / tol).floor() as i64,
+    )
 }
 
 /// Groups vertices closer than `tol` to each other: returns, for each vertex, the index of its representative.
@@ -812,13 +933,20 @@ fn cleanup(brep: &mut Brep, tol: f64) {
             continue;
         }
         edge_remap[i] = Some(edges.len());
-        edges.push(Edge { start, end, curve: e.curve.clone() });
+        edges.push(Edge {
+            start,
+            end,
+            curve: e.curve.clone(),
+        });
     }
     for face in &mut brep.faces {
         let mut loops = Vec::with_capacity(face.loops.len());
         let mut outer = None;
         for (li, lp) in face.loops.iter().enumerate() {
-            let kept: Vec<(usize, bool)> = lp.iter().filter_map(|&(e, forward)| edge_remap[e].map(|ne| (ne, forward))).collect();
+            let kept: Vec<(usize, bool)> = lp
+                .iter()
+                .filter_map(|&(e, forward)| edge_remap[e].map(|ne| (ne, forward)))
+                .collect();
             let closed_single = kept.len() == 1 && matches!(edges[kept[0].0].curve, Curve::Circle { .. });
             if kept.len() >= 2 || closed_single {
                 if li == face.outer {
@@ -896,7 +1024,9 @@ impl Brep {
                     let end0 = if f0 { self.edges[e0].end } else { self.edges[e0].start };
                     let start1 = if f1 { self.edges[e1].start } else { self.edges[e1].end };
                     if end0 != start1 {
-                        return Err(Error::Validation(format!("face {fi}: loop is not closed between edges {e0} and {e1}")));
+                        return Err(Error::Validation(format!(
+                            "face {fi}: loop is not closed between edges {e0} and {e1}"
+                        )));
                     }
                     edge_faces.entry(e0).or_default().push(fi);
                 }
@@ -910,7 +1040,9 @@ impl Brep {
             for &fi in &faces {
                 for v in [edge.start, edge.end] {
                     if !on_surface(self.vertices[v], &self.faces[fi].surface, tolerance) {
-                        return Err(Error::Validation(format!("edge {ei}: vertex {v} is off face {fi} by more than {tolerance}")));
+                        return Err(Error::Validation(format!(
+                            "edge {ei}: vertex {v} is off face {fi} by more than {tolerance}"
+                        )));
                     }
                 }
                 if let Curve::Circle { center, z, radius, .. } = &edge.curve {
@@ -949,25 +1081,55 @@ impl Brep {
             s
         };
         let point = |out: &mut String, line: &mut dyn FnMut(&mut String, String) -> usize, p: Point3| -> usize {
-            line(out, format!("CARTESIAN_POINT('', ({}, {}, {}))", real(p[0]), real(p[1]), real(p[2])))
+            line(
+                out,
+                format!("CARTESIAN_POINT('', ({}, {}, {}))", real(p[0]), real(p[1]), real(p[2])),
+            )
         };
         let direction = |out: &mut String, line: &mut dyn FnMut(&mut String, String) -> usize, d: Vector3| -> usize {
-            line(out, format!("DIRECTION('', ({}, {}, {}))", real(d[0]), real(d[1]), real(d[2])))
+            line(
+                out,
+                format!("DIRECTION('', ({}, {}, {}))", real(d[0]), real(d[1]), real(d[2])),
+            )
         };
 
         // Context
-        let app = line(&mut out, "APPLICATION_CONTEXT('core data for automotive mechanical design processes')".into());
-        line(&mut out, format!("APPLICATION_PROTOCOL_DEFINITION('international standard', 'automotive_design', 2000, #{app})"));
+        let app = line(
+            &mut out,
+            "APPLICATION_CONTEXT('core data for automotive mechanical design processes')".into(),
+        );
+        line(
+            &mut out,
+            format!("APPLICATION_PROTOCOL_DEFINITION('international standard', 'automotive_design', 2000, #{app})"),
+        );
         let pctx = line(&mut out, format!("PRODUCT_CONTEXT('', #{app}, 'mechanical')"));
         let product = line(&mut out, format!("PRODUCT('{name}', '{name}', '', (#{pctx}))"));
-        line(&mut out, format!("PRODUCT_RELATED_PRODUCT_CATEGORY('part', $, (#{product}))"));
+        line(
+            &mut out,
+            format!("PRODUCT_RELATED_PRODUCT_CATEGORY('part', $, (#{product}))"),
+        );
         let formation = line(&mut out, format!("PRODUCT_DEFINITION_FORMATION('', '', #{product})"));
-        let dctx = line(&mut out, format!("PRODUCT_DEFINITION_CONTEXT('part definition', #{app}, 'design')"));
-        let definition = line(&mut out, format!("PRODUCT_DEFINITION('design', '', #{formation}, #{dctx})"));
+        let dctx = line(
+            &mut out,
+            format!("PRODUCT_DEFINITION_CONTEXT('part definition', #{app}, 'design')"),
+        );
+        let definition = line(
+            &mut out,
+            format!("PRODUCT_DEFINITION('design', '', #{formation}, #{dctx})"),
+        );
         let shape = line(&mut out, format!("PRODUCT_DEFINITION_SHAPE('', '', #{definition})"));
-        let lu = line(&mut out, "( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI., .METRE.) )".into());
-        let au = line(&mut out, "( NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($, .RADIAN.) )".into());
-        let su = line(&mut out, "( NAMED_UNIT(*) SI_UNIT($, .STERADIAN.) SOLID_ANGLE_UNIT() )".into());
+        let lu = line(
+            &mut out,
+            "( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI., .METRE.) )".into(),
+        );
+        let au = line(
+            &mut out,
+            "( NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($, .RADIAN.) )".into(),
+        );
+        let su = line(
+            &mut out,
+            "( NAMED_UNIT(*) SI_UNIT($, .STERADIAN.) SOLID_ANGLE_UNIT() )".into(),
+        );
         let unc = line(&mut out, format!("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0E-6), #{lu}, 'distance_accuracy_value', 'confusion accuracy')"));
         let ctx = line(&mut out, format!("( GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#{unc})) GLOBAL_UNIT_ASSIGNED_CONTEXT((#{lu}, #{au}, #{su})) REPRESENTATION_CONTEXT('Context #1', '3D Context with UNIT and UNCERTAINTY') )"));
 
@@ -998,18 +1160,31 @@ impl Brep {
                     line(&mut out, format!("CIRCLE('', #{place}, {})", real(*radius)))
                 }
                 Curve::Polyline(pts) => {
-                    let ids: Vec<String> = pts.iter().map(|&p| format!("#{}", point(&mut out, &mut line, p))).collect();
+                    let ids: Vec<String> = pts
+                        .iter()
+                        .map(|&p| format!("#{}", point(&mut out, &mut line, p)))
+                        .collect();
                     line(&mut out, format!("POLYLINE('', ({}))", ids.join(", ")))
                 }
             };
-            edge_ids.push(line(&mut out, format!("EDGE_CURVE('', #{}, #{}, #{curve}, .T.)", vertex_ids[e.start], vertex_ids[e.end])));
+            edge_ids.push(line(
+                &mut out,
+                format!(
+                    "EDGE_CURVE('', #{}, #{}, #{curve}, .T.)",
+                    vertex_ids[e.start], vertex_ids[e.end]
+                ),
+            ));
         }
         // Faces
         let mut face_ids = Vec::with_capacity(self.faces.len());
         for face in &self.faces {
             let surface = match &face.surface {
                 Surface::Plane { origin, normal } => {
-                    let helper = if normal[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+                    let helper = if normal[0].abs() < 0.9 {
+                        [1.0, 0.0, 0.0]
+                    } else {
+                        [0.0, 1.0, 0.0]
+                    };
                     let x = normalize(cross(*normal, helper)).unwrap_or([1.0, 0.0, 0.0]);
                     let x = normalize(cross(x, *normal)).unwrap_or(x);
                     let o = point(&mut out, &mut line, *origin);
@@ -1023,22 +1198,48 @@ impl Brep {
                     let n = direction(&mut out, &mut line, [0.0, 0.0, 1.0]);
                     let xd = direction(&mut out, &mut line, [1.0, 0.0, 0.0]);
                     let place = line(&mut out, format!("AXIS2_PLACEMENT_3D('', #{o}, #{n}, #{xd})"));
-                    line(&mut out, format!("CYLINDRICAL_SURFACE('', #{place}, {})", real(*radius)))
+                    line(
+                        &mut out,
+                        format!("CYLINDRICAL_SURFACE('', #{place}, {})", real(*radius)),
+                    )
                 }
             };
             let mut bound_ids = Vec::with_capacity(face.loops.len());
             for (k, lp) in face.loops.iter().enumerate() {
                 let oriented: Vec<String> = lp
                     .iter()
-                    .map(|&(e, forward)| format!("#{}", line(&mut out, format!("ORIENTED_EDGE('', *, *, #{}, {})", edge_ids[e], if forward { ".T." } else { ".F." }))))
+                    .map(|&(e, forward)| {
+                        format!(
+                            "#{}",
+                            line(
+                                &mut out,
+                                format!(
+                                    "ORIENTED_EDGE('', *, *, #{}, {})",
+                                    edge_ids[e],
+                                    if forward { ".T." } else { ".F." }
+                                )
+                            )
+                        )
+                    })
                     .collect();
                 let loop_id = line(&mut out, format!("EDGE_LOOP('', ({}))", oriented.join(", ")));
-                let kind = if k == face.outer { "FACE_OUTER_BOUND" } else { "FACE_BOUND" };
+                let kind = if k == face.outer {
+                    "FACE_OUTER_BOUND"
+                } else {
+                    "FACE_BOUND"
+                };
                 bound_ids.push(format!("#{}", line(&mut out, format!("{kind}('', #{loop_id}, .T.)"))));
             }
             face_ids.push(format!(
                 "#{}",
-                line(&mut out, format!("ADVANCED_FACE('', ({}), #{surface}, {})", bound_ids.join(", "), if face.same_sense { ".T." } else { ".F." }))
+                line(
+                    &mut out,
+                    format!(
+                        "ADVANCED_FACE('', ({}), #{surface}, {})",
+                        bound_ids.join(", "),
+                        if face.same_sense { ".T." } else { ".F." }
+                    )
+                )
             ));
         }
         let shell = line(&mut out, format!("CLOSED_SHELL('', ({}))", face_ids.join(", ")));
@@ -1047,13 +1248,19 @@ impl Brep {
         let z = direction(&mut out, &mut line, [0.0, 0.0, 1.0]);
         let x = direction(&mut out, &mut line, [1.0, 0.0, 0.0]);
         let origin = line(&mut out, format!("AXIS2_PLACEMENT_3D('', #{o}, #{z}, #{x})"));
-        let repr = line(&mut out, format!("ADVANCED_BREP_SHAPE_REPRESENTATION('', (#{origin}, #{brep}), #{ctx})"));
+        let repr = line(
+            &mut out,
+            format!("ADVANCED_BREP_SHAPE_REPRESENTATION('', (#{origin}, #{brep}), #{ctx})"),
+        );
         line(&mut out, format!("SHAPE_DEFINITION_REPRESENTATION(#{shape}, #{repr})"));
 
         writeln!(w, "ISO-10303-21;")?;
         writeln!(w, "HEADER;")?;
         writeln!(w, "FILE_DESCRIPTION(('cutrail machined stock'), '2;1');")?;
-        writeln!(w, "FILE_NAME('{name}.step', '2026-10-17T00:00:00', ('cutrail'), (''), 'cutrail', 'cutrail', '');")?;
+        writeln!(
+            w,
+            "FILE_NAME('{name}.step', '2026-10-17T00:00:00', ('cutrail'), (''), 'cutrail', 'cutrail', '');"
+        )?;
         writeln!(w, "FILE_SCHEMA(('AUTOMOTIVE_DESIGN {{ 1 0 10303 214 1 1 1 1 }}'));")?;
         writeln!(w, "ENDSEC;")?;
         writeln!(w, "DATA;")?;

@@ -11,14 +11,27 @@ pub fn assert_close(actual: f64, expected: f64, rel: f64, what: &str) {
 
 /// A 10 mm cube of stock.
 pub fn cube10(options: EngineOptions) -> Engine {
-    Engine::new(ManifoldKernel, &[StockShape::Box { min: [0.0; 3], max: [10.0; 3] }], options).unwrap()
+    Engine::new(
+        ManifoldKernel,
+        &[StockShape::Box {
+            min: [0.0; 3],
+            max: [10.0; 3],
+        }],
+        options,
+    )
+    .unwrap()
 }
 
 /// A 10 mm cube with a slot through it along y, cut by a flat end mill of `tool_diameter` with its tip at `tip_z`.
 pub fn slotted_cube(tool_diameter: f64, tip_z: f64) -> Engine {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::flat_end_mill(tool_diameter, 10.0);
-    let r = e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, -5.0, tip_z]), Pose::vertical([5.0, 15.0, tip_z]))).unwrap();
+    let r = e
+        .cut(
+            &tool,
+            &MotionSegment::linear(Pose::vertical([5.0, -5.0, tip_z]), Pose::vertical([5.0, 15.0, tip_z])),
+        )
+        .unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated);
     e
 }

@@ -38,11 +38,10 @@ impl Kernel for ManifoldKernel {
     fn make_stock(&self, shape: &StockShape, chord_tolerance: f64) -> Result<Manifold> {
         shape.validate()?;
         let m = match shape {
-            StockShape::Box { min, max } => Manifold::cube(
-                Vec3::new(max[0] - min[0], max[1] - min[1], max[2] - min[2]),
-                false,
-            )
-            .translate(Vec3::new(min[0], min[1], min[2])),
+            StockShape::Box { min, max } => {
+                Manifold::cube(Vec3::new(max[0] - min[0], max[1] - min[1], max[2] - min[2]), false)
+                    .translate(Vec3::new(min[0], min[1], min[2]))
+            }
             StockShape::Cylinder { center, radius, z0, z1 } => {
                 let n = circle_segments(*radius, chord_tolerance);
                 let r = area_equivalent_radius(*radius, n);
@@ -64,7 +63,11 @@ impl Kernel for ManifoldKernel {
             let gl = MeshGL64 {
                 num_prop: 3,
                 vert_properties: merged.positions.iter().flat_map(|p| p.iter().copied()).collect(),
-                tri_verts: merged.triangles.iter().flat_map(|t| t.iter().map(|&i| i as u64)).collect(),
+                tri_verts: merged
+                    .triangles
+                    .iter()
+                    .flat_map(|t| t.iter().map(|&i| i as u64))
+                    .collect(),
                 ..Default::default()
             };
             let m = Manifold::from_mesh_gl64(&gl);
@@ -85,7 +88,9 @@ impl Kernel for ManifoldKernel {
                     Ok(m)
                 }
             }
-            status => Err(Error::InvalidInput(format!("mesh is not a closed manifold: {status:?}"))),
+            status => Err(Error::InvalidInput(format!(
+                "mesh is not a closed manifold: {status:?}"
+            ))),
         }
     }
 
@@ -96,7 +101,11 @@ impl Kernel for ManifoldKernel {
         let r = distance.abs();
         let n = circle_segments(r, chord_tolerance.max(r * 0.05)).clamp(8, 32) as i32;
         let ball = Manifold::sphere(r, n);
-        let m = if distance > 0.0 { solid.minkowski_sum(&ball) } else { solid.minkowski_difference(&ball) };
+        let m = if distance > 0.0 {
+            solid.minkowski_sum(&ball)
+        } else {
+            solid.minkowski_difference(&ball)
+        };
         checked(m, "offset")
     }
 
@@ -105,7 +114,10 @@ impl Kernel for ManifoldKernel {
             SweptVolume::ConvexHull(points) => hull_of(points),
             SweptVolume::HullUnion(hulls) => {
                 let solids: Vec<Manifold> = hulls.iter().map(|h| hull_of(h)).collect();
-                if solids.iter().any(|m| m.status() != ManifoldStatus::NoError || m.is_empty()) {
+                if solids
+                    .iter()
+                    .any(|m| m.status() != ManifoldStatus::NoError || m.is_empty())
+                {
                     return Err(Error::Kernel("swept volume sub-step hull is invalid".into()));
                 }
                 self.union_all(&solids)?
@@ -114,7 +126,11 @@ impl Kernel for ManifoldKernel {
                 let gl = MeshGL64 {
                     num_prop: 3,
                     vert_properties: mesh.positions.iter().flat_map(|p| p.iter().copied()).collect(),
-                    tri_verts: mesh.triangles.iter().flat_map(|t| t.iter().map(|&i| i as u64)).collect(),
+                    tri_verts: mesh
+                        .triangles
+                        .iter()
+                        .flat_map(|t| t.iter().map(|&i| i as u64))
+                        .collect(),
                     ..Default::default()
                 };
                 Manifold::from_mesh_gl64(&gl)
@@ -187,7 +203,11 @@ impl Kernel for ManifoldKernel {
         let gl = solid.get_mesh_gl64(NO_NORMALS);
         let stride = (gl.num_prop as usize).max(3);
         let positions = gl.vert_properties.chunks(stride).map(|c| [c[0], c[1], c[2]]).collect();
-        let triangles = gl.tri_verts.chunks(3).map(|c| [c[0] as u32, c[1] as u32, c[2] as u32]).collect();
+        let triangles = gl
+            .tri_verts
+            .chunks(3)
+            .map(|c| [c[0] as u32, c[1] as u32, c[2] as u32])
+            .collect();
         TriMesh { positions, triangles }
     }
 
@@ -208,7 +228,11 @@ impl Kernel for ManifoldKernel {
         let gl = solid.get_mesh_gl64(NO_NORMALS);
         let stride = (gl.num_prop as usize).max(3);
         let positions = gl.vert_properties.chunks(stride).map(|c| [c[0], c[1], c[2]]).collect();
-        let triangles: Vec<[u32; 3]> = gl.tri_verts.chunks(3).map(|c| [c[0] as u32, c[1] as u32, c[2] as u32]).collect();
+        let triangles: Vec<[u32; 3]> = gl
+            .tri_verts
+            .chunks(3)
+            .map(|c| [c[0] as u32, c[1] as u32, c[2] as u32])
+            .collect();
         let mut sources = vec![0u32; triangles.len()];
         let runs = gl.run_index.len().saturating_sub(1);
         for r in 0..runs {

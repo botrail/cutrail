@@ -9,7 +9,12 @@ fn ball_plunge_matches_analytic() {
     // A ball of radius 2 plunged to a tip height of z=6: hemisphere (2/3)π8 + cylinder π4·2
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::ball_end_mill(4.0, 6.0);
-    let r = e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0]))).unwrap();
+    let r = e
+        .cut(
+            &tool,
+            &MotionSegment::linear(Pose::vertical([5.0, 5.0, 10.0]), Pose::vertical([5.0, 5.0, 6.0])),
+        )
+        .unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated);
     let expected = 2.0 / 3.0 * PI * 8.0 + PI * 4.0 * 2.0;
     assert_close(r.removed_volume, expected, 2e-2, "ball plunge removed volume");
@@ -20,7 +25,12 @@ fn ball_slot_matches_analytic() {
     // Cross-section: a half disk (π·4/2) plus a rectangle (4×2), over a length of 10
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::ball_end_mill(4.0, 6.0);
-    let r = e.cut(&tool, &MotionSegment::linear(Pose::vertical([5.0, -3.0, 6.0]), Pose::vertical([5.0, 13.0, 6.0]))).unwrap();
+    let r = e
+        .cut(
+            &tool,
+            &MotionSegment::linear(Pose::vertical([5.0, -3.0, 6.0]), Pose::vertical([5.0, 13.0, 6.0])),
+        )
+        .unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated);
     let expected = (PI * 4.0 / 2.0 + 4.0 * 2.0) * 10.0;
     assert_close(r.removed_volume, expected, 2e-2, "ball slot removed volume");
@@ -51,7 +61,10 @@ fn bull_nose_plunge_matches_grid() {
 fn tilted_ball_sweep_matches_grid() {
     let mut e = cube10(EngineOptions::default());
     let tool = Tool::ball_end_mill(4.0, 8.0);
-    let seg = MotionSegment::linear(Pose::tilted_about_y([2.0, 5.0, 7.0], -20.0), Pose::tilted_about_y([8.0, 5.0, 7.0], 20.0));
+    let seg = MotionSegment::linear(
+        Pose::tilted_about_y([2.0, 5.0, 7.0], -20.0),
+        Pose::tilted_about_y([8.0, 5.0, 7.0], 20.0),
+    );
     let r = e.cut(&tool, &seg).unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated, "{:?}", r.diagnostics);
     let expected = grid_removed(&tool, std::slice::from_ref(&seg), 64, 0.1);

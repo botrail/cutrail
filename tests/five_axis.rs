@@ -1,10 +1,9 @@
 //! Arbitrary tool axes and segments whose axis rotates (5-axis); expected volumes come from grid sampling.
 mod common;
-use common::{assert_close};
+use common::assert_close;
 use cutrail::sweep::{rotation_steps, swept_volume};
 use cutrail::{CutOutcome, Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
 use std::f64::consts::PI;
-
 
 /// Whether point `p` lies inside the tool (a flat-bottomed cylinder) at `pose`.
 fn inside(tool: &Tool, pose: &Pose, p: [f64; 3]) -> bool {
@@ -19,7 +18,14 @@ fn inside(tool: &Tool, pose: &Pose, p: [f64; 3]) -> bool {
 }
 
 /// Grid estimate of the volume inside the box [min,max] covered by the sweep of `segments`, interpolating `sub` sub-steps per segment.
-fn grid_removed(min: [f64; 3], max: [f64; 3], tool: &Tool, segments: &[MotionSegment], sub: usize, spacing: f64) -> f64 {
+fn grid_removed(
+    min: [f64; 3],
+    max: [f64; 3],
+    tool: &Tool,
+    segments: &[MotionSegment],
+    sub: usize,
+    spacing: f64,
+) -> f64 {
     let n = [
         ((max[0] - min[0]) / spacing).ceil() as usize,
         ((max[1] - min[1]) / spacing).ceil() as usize,
@@ -64,8 +70,14 @@ fn grid_removed(min: [f64; 3], max: [f64; 3], tool: &Tool, segments: &[MotionSeg
 }
 
 fn cube10(tile: Option<f64>) -> Engine {
-    let stock = StockShape::Box { min: [0.0; 3], max: [10.0; 3] };
-    let options = EngineOptions { tile_size: tile, ..Default::default() };
+    let stock = StockShape::Box {
+        min: [0.0; 3],
+        max: [10.0; 3],
+    };
+    let options = EngineOptions {
+        tile_size: tile,
+        ..Default::default()
+    };
     Engine::new(ManifoldKernel, &[stock], options).unwrap()
 }
 
@@ -91,8 +103,22 @@ fn tilted_through_hole_matches_analytic() {
     // A radius-1.5 tool tilted 30° fed along its axis through the stock: removes πr²·10/cos30°
     let mut e = cube10(None);
     let tool = Tool::flat_end_mill(3.0, 10.0);
-    let a = Pose::tilted_about_y([5.0 - 10.0 * 30f64.to_radians().sin(), 5.0, 5.0 - 10.0 * 30f64.to_radians().cos()], 30.0);
-    let b = Pose::tilted_about_y([5.0 + 2.0 * 30f64.to_radians().sin(), 5.0, 5.0 + 2.0 * 30f64.to_radians().cos()], 30.0);
+    let a = Pose::tilted_about_y(
+        [
+            5.0 - 10.0 * 30f64.to_radians().sin(),
+            5.0,
+            5.0 - 10.0 * 30f64.to_radians().cos(),
+        ],
+        30.0,
+    );
+    let b = Pose::tilted_about_y(
+        [
+            5.0 + 2.0 * 30f64.to_radians().sin(),
+            5.0,
+            5.0 + 2.0 * 30f64.to_radians().cos(),
+        ],
+        30.0,
+    );
     let r = e.cut(&tool, &MotionSegment::linear(a, b)).unwrap();
     assert_eq!(r.outcome, CutOutcome::Updated);
     let removed = PI * 1.5 * 1.5 * 10.0 / 30f64.to_radians().cos();
@@ -126,7 +152,12 @@ fn rotation_with_translation_matches_grid_in_whole_and_tiled_modes() {
         let mut e = cube10(tile);
         let r = e.cut(&tool, &seg).unwrap();
         assert_eq!(r.outcome, CutOutcome::Updated, "{:?}", r.diagnostics);
-        assert_close(r.removed_volume, expected, 2e-2, &format!("removed volume (tile {tile:?})"));
+        assert_close(
+            r.removed_volume,
+            expected,
+            2e-2,
+            &format!("removed volume (tile {tile:?})"),
+        );
     }
 }
 
@@ -135,13 +166,19 @@ fn tilted_sweep_sequence_like_p0b() {
     // Feed the tip 1 mm at a time while the tilt follows a ±20° sine (200 segments, each with a different pose)
     let n = 200;
     let len = n as f64 + 10.0; // the tip travels x = 3..203, so the stock must be longer
-    let stock = StockShape::Box { min: [0.0; 3], max: [len, 10.0, 10.0] };
+    let stock = StockShape::Box {
+        min: [0.0; 3],
+        max: [len, 10.0, 10.0],
+    };
     let tool = Tool::flat_end_mill(4.0, 10.0);
     let pose = |i: usize| Pose::tilted_about_y([3.0 + i as f64, 5.0, 7.0], 20.0 * (2.0 * PI * i as f64 / 40.0).sin());
     let segments: Vec<_> = (0..n).map(|i| MotionSegment::linear(pose(i), pose(i + 1))).collect();
     let expected = grid_removed([0.0; 3], [len, 10.0, 10.0], &tool, &segments, 8, 0.25);
     for tile in [None, Some(10.0)] {
-        let options = EngineOptions { tile_size: tile, ..Default::default() };
+        let options = EngineOptions {
+            tile_size: tile,
+            ..Default::default()
+        };
         let mut e = Engine::new(ManifoldKernel, std::slice::from_ref(&stock), options).unwrap();
         let reports = e.cut_many(&tool, &segments).unwrap();
         assert!(reports.iter().all(|r| r.outcome == CutOutcome::Updated));

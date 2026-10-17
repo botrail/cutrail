@@ -2,13 +2,18 @@
 name = "cutrail"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "Apache-2.0"
 description = "Material removal simulation core for machining: mesh-based stock, robust booleans, 3- and 5-axis sweeps, STEP/mesh I/O"
 readme = "README.md"
+repository = "https://github.com/botrail/cutrail"
+documentation = "https://docs.rs/cutrail"
 keywords = ["cnc", "machining", "simulation", "cam", "mesh"]
 categories = ["simulation", "science"]
-publish = false
+exclude = [".github/", ".internal/"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [workspace]
 members = ["cutrail-wasm"]
@@ -16,6 +21,7 @@ exclude = [".internal"]
 
 [dependencies]
 manifold-rust = "0.16"
+serde = { version = "1", features = ["derive"], optional = true }
 thiserror = "2"
 truck-stepio = { version = "0.3", optional = true }
 truck-meshalgo = { version = "0.4", optional = true }
@@ -25,12 +31,15 @@ zip = { version = "7.3.0", default-features = false }
 
 [features]
 default = []
-# native のみ。WASM では単一スレッド
+# Parallel booleans in manifold-rust. Native only; WebAssembly stays single-threaded.
 parallel = ["manifold-rust/parallel"]
-# STEP 素材の読込（truck-stepio で B-rep を読み、メッシュ化する）
+# Serialize / Deserialize for poses, segments, tools, options, reports, meshes and B-reps.
+serde = ["dep:serde"]
+# Reading stock and design models from STEP (truck-stepio reads the B-rep, truck-meshalgo tessellates it).
 stepio = ["dep:truck-stepio", "dep:truck-meshalgo", "dep:truck-topology"]
 
 [dev-dependencies]
+serde_json = "1"
 truck-modeling = "0.6"
 truck-stepio = "0.3"
 truck-topology = "0.6"

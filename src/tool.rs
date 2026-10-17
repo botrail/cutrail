@@ -6,6 +6,7 @@ use std::f64::consts::FRAC_PI_2;
 
 /// A tool.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tool {
     /// The cutting part
     pub cutter: Cutter,
@@ -17,6 +18,7 @@ pub struct Tool {
 
 /// Shape of the cutting part. In every variant `flute_length` is the height from the tip (lowest point) to the top of the cutting part.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum Cutter {
     /// Flat end mill: flat tip, cylindrical side
@@ -46,6 +48,7 @@ pub enum Cutter {
 
 /// Shank (the cylinder above the flutes).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Shank {
     /// Diameter (mm)
     pub diameter: f64,
@@ -55,6 +58,7 @@ pub struct Shank {
 
 /// Holder (the cylinder above the shank).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Holder {
     /// Diameter (mm)
     pub diameter: f64,
@@ -73,17 +77,33 @@ fn positive(name: &str, v: f64) -> Result<()> {
 impl Tool {
     /// Creates a flat end mill.
     pub fn flat_end_mill(diameter: f64, flute_length: f64) -> Tool {
-        Tool { cutter: Cutter::FlatEndMill { diameter, flute_length }, shank: None, holder: None }
+        Tool {
+            cutter: Cutter::FlatEndMill { diameter, flute_length },
+            shank: None,
+            holder: None,
+        }
     }
 
     /// Creates a ball end mill.
     pub fn ball_end_mill(diameter: f64, flute_length: f64) -> Tool {
-        Tool { cutter: Cutter::BallEndMill { diameter, flute_length }, shank: None, holder: None }
+        Tool {
+            cutter: Cutter::BallEndMill { diameter, flute_length },
+            shank: None,
+            holder: None,
+        }
     }
 
     /// Creates a bull-nose end mill.
     pub fn bull_nose_end_mill(diameter: f64, corner_radius: f64, flute_length: f64) -> Tool {
-        Tool { cutter: Cutter::BullNoseEndMill { diameter, corner_radius, flute_length }, shank: None, holder: None }
+        Tool {
+            cutter: Cutter::BullNoseEndMill {
+                diameter,
+                corner_radius,
+                flute_length,
+            },
+            shank: None,
+            holder: None,
+        }
     }
 
     /// Attaches a shank.
@@ -192,18 +212,28 @@ impl Tool {
                 positive("tool diameter", diameter)?;
                 positive("tool flute length", flute_length)?;
                 if flute_length < diameter * 0.5 - 1e-9 {
-                    return Err(Error::InvalidInput("ball end mill flute length must be at least the radius".into()));
+                    return Err(Error::InvalidInput(
+                        "ball end mill flute length must be at least the radius".into(),
+                    ));
                 }
             }
-            Cutter::BullNoseEndMill { diameter, corner_radius, flute_length } => {
+            Cutter::BullNoseEndMill {
+                diameter,
+                corner_radius,
+                flute_length,
+            } => {
                 positive("tool diameter", diameter)?;
                 positive("corner radius", corner_radius)?;
                 positive("tool flute length", flute_length)?;
                 if corner_radius > diameter * 0.5 + 1e-9 {
-                    return Err(Error::InvalidInput("corner radius must not exceed the tool radius".into()));
+                    return Err(Error::InvalidInput(
+                        "corner radius must not exceed the tool radius".into(),
+                    ));
                 }
                 if flute_length < corner_radius - 1e-9 {
-                    return Err(Error::InvalidInput("flute length must be at least the corner radius".into()));
+                    return Err(Error::InvalidInput(
+                        "flute length must be at least the corner radius".into(),
+                    ));
                 }
             }
         }

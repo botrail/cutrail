@@ -7,6 +7,7 @@ pub type Vector3 = [f64; 3];
 
 /// Axis-aligned bounding box.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Aabb {
     /// Minimum corner
     pub min: Point3,
@@ -17,7 +18,10 @@ pub struct Aabb {
 impl Aabb {
     /// An empty box containing nothing.
     pub fn empty() -> Self {
-        Aabb { min: [f64::INFINITY; 3], max: [f64::NEG_INFINITY; 3] }
+        Aabb {
+            min: [f64::INFINITY; 3],
+            max: [f64::NEG_INFINITY; 3],
+        }
     }
 
     /// The box enclosing a set of points.
@@ -79,7 +83,11 @@ impl Aabb {
 
     /// Extent along each axis.
     pub fn extent(&self) -> Vector3 {
-        [self.max[0] - self.min[0], self.max[1] - self.min[1], self.max[2] - self.min[2]]
+        [
+            self.max[0] - self.min[0],
+            self.max[1] - self.min[1],
+            self.max[2] - self.min[2],
+        ]
     }
 
     /// Volume.

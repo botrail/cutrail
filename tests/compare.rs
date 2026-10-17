@@ -19,9 +19,18 @@ fn compare_with_design_reports_excess_and_gouge() {
     assert!(cb.excess_volume < 0.5, "excess {}", cb.excess_volume);
     // Tolerance 0.5: the design dilated by 0.5 has its slot at x 3.5..6.5 with the floor at z 6.5, so A's excess drops to 3*1.5*10 = 45
     let ca_tol = a.compare_with_design(&design, 0.5).unwrap();
-    assert!(ca_tol.excess_volume < ca.excess_volume, "{} vs {}", ca_tol.excess_volume, ca.excess_volume);
+    assert!(
+        ca_tol.excess_volume < ca.excess_volume,
+        "{} vs {}",
+        ca_tol.excess_volume,
+        ca.excess_volume
+    );
     assert_close(ca_tol.excess_volume, 45.0, 5e-2, "excess beyond tolerance");
     // Identical shapes give zero for both
     let same = slotted_cube(4.0, 6.0).compare_with_design(&design, 0.0).unwrap();
-    assert!(same.is_within_tolerance(), "{:?}", (same.excess_volume, same.gouge_volume));
+    assert!(
+        same.is_within_tolerance(),
+        "{:?}",
+        (same.excess_volume, same.gouge_volume)
+    );
 }

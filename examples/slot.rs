@@ -7,7 +7,10 @@ use cutrail::{Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockS
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out = std::env::args().nth(1).unwrap_or_else(|| "slot.stl".to_string());
-    let stock = StockShape::Box { min: [0.0, 0.0, 0.0], max: [60.0, 40.0, 20.0] };
+    let stock = StockShape::Box {
+        min: [0.0, 0.0, 0.0],
+        max: [60.0, 40.0, 20.0],
+    };
     let mut engine = Engine::new(ManifoldKernel, &[stock], EngineOptions::default())?;
     let tool = Tool::flat_end_mill(6.0, 20.0);
 

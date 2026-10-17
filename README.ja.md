@@ -1,5 +1,9 @@
 # cutrail
 
+[![crates.io](https://img.shields.io/crates/v/cutrail.svg)](https://crates.io/crates/cutrail)
+[![docs.rs](https://docs.rs/cutrail/badge.svg)](https://docs.rs/cutrail)
+[![CI](https://github.com/botrail/cutrail/actions/workflows/ci.yml/badge.svg)](https://github.com/botrail/cutrail/actions/workflows/ci.yml)
+
 [English](README.md) | 日本語
 
 Rust 製の切削シミュレーションコア。素材を三角形メッシュとして保持し、工具が通過した体積を堅牢なメッシュブーリアンで差し引く。3 軸・5 軸のフライス加工に対応し、STEP・STL・OBJ・glTF・3MF の入出力、設計モデルとの比較、Web（WASM）での実行ができる。
@@ -18,8 +22,14 @@ Rust 製の切削シミュレーションコア。素材を三角形メッシュ
 
 ```toml
 [dependencies]
-cutrail = { path = "path/to/cutrail" }   # crates.io には未公開
+cutrail = "0.1"
 ```
+
+| Cargo feature | 追加されるもの |
+|---|---|
+| `stepio` | STEP からの素材・設計モデルの読込（truck 経由） |
+| `serde` | 姿勢・区間・工具・設定・レポート・メッシュ・B-rep の `Serialize` / `Deserialize` |
+| `parallel` | manifold-rust の並列ブーリアン（native のみ） |
 
 ```rust
 use cutrail::{Engine, EngineOptions, ManifoldKernel, MotionSegment, Pose, StockShape, Tool};
@@ -86,6 +96,7 @@ let seg = MotionSegment::linear(
 - 解析面の B-rep 出力は 3 軸・フラットエンドミルの水平送り・突込み・水平な円弧移動の結果に限られ、それ以外の面はファセットになる。
 - 設計モデルとの比較の公差オフセットは球の多面体近似を使うため、小さい公差では分割数の調整が要る。
 - `SegmentBuilder` は直線区間だけを作る。円弧は呼び出し側で `MotionSegment::arc` として渡す。
+- API は 0.x。`Kernel` と `ManifoldKernel` は manifold-rust の型を露出しているのでマイナーバージョンで変わりうる。`Engine` と幾何の型が安定した面。
 
 ## ドキュメント
 
@@ -97,8 +108,9 @@ let seg = MotionSegment::linear(
 ## 開発
 
 ```sh
-cargo test --release                      # 単体・結合テスト
-cargo test --release --features stepio    # STEP 読込を含む
+cargo test --release                            # 単体・結合テスト
+cargo test --release --features serde,stepio    # シリアライズと STEP 読込を含む
+cargo fmt --all --check && cargo clippy --release --workspace --all-targets --all-features -- -D warnings
 cargo run --release --example slot -- out.stl
 cargo run --release --example bench -- 10000 10 1 0 0 flat   # 区間数 タイル まとめ 簡略化 傾き 工具
 cargo run --release --example step_export -- out/            # サンプル形状を STEP と STL に書き出す

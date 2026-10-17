@@ -31,7 +31,10 @@ fn to_trimesh(poly: &PolygonMesh) -> TriMesh {
 /// Tessellates every shell in a STEP string. Vertices stay duplicated per face.
 pub fn meshes_from_step_str(step: &str, chord_tolerance: f64) -> Result<Vec<TriMesh>> {
     let exchange = ruststep::parser::parse(step).map_err(|e| Error::InvalidInput(format!("STEP parse error: {e}")))?;
-    let data = exchange.data.first().ok_or_else(|| Error::InvalidInput("STEP file has no data section".into()))?;
+    let data = exchange
+        .data
+        .first()
+        .ok_or_else(|| Error::InvalidInput("STEP file has no data section".into()))?;
     let table = Table::from_data_section(data);
     let mut shells: Vec<_> = table.shell.iter().collect();
     shells.sort_by_key(|(id, _)| **id);
