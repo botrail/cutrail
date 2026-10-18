@@ -179,7 +179,16 @@ cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --ti
 ```sh
 wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node
 node cutrail-wasm/test/node_test.cjs 1000 10 20        # segments tile tilt
-wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg   # Web Worker example in cutrail-wasm/www/
+wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg   # 3D demo in cutrail-wasm/www/ (serve the directory statically)
 ```
 
 WebAssembly is single-threaded and runs at about 1.5x the native time.
+
+### 3D demo
+
+`cutrail-wasm/www/` is a browser demo: a Web Worker owns the engine and the page draws the stock with three.js, tile by tile, replacing only the tiles each step changed. The surviving stock skin and the surfaces the cutter made are colored differently (`mesh_with_kinds`), the cutter is drawn at its current pose, and the stats show removed volume, triangles and the time per segment. It replays built-in paths (a 3-axis zigzag pocket with an optional ±tilt of the axis, a rim chamfer with the cutter leaning 45° and turning at the corners, a cone boss roughed in 3-axis and finished with 5-axis swarf laps whose axis precesses every lap, and a pocket with drafted walls cut by swarf passes) or a pose-stream CSV in the format of `examples/pose_stream.rs` (`# stock_box` and `# tool` header lines, `t,x,y,z,ax,ay,az` per sample), which the worker coalesces into segments with `push_poses` / `flush`.
+
+```sh
+wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg
+python3 -m http.server 8765 --directory cutrail-wasm/www    # then open http://localhost:8765/
+```

@@ -15,7 +15,7 @@ A material removal simulation core for machining, written in Rust. The stock is 
 - **Bounded cost per cut.** The stock is tiled; only tiles overlapping the sweep are updated. After 100,000 segments the time per segment is still a few milliseconds.
 - **I/O.** Stock from boxes, cylinders, meshes (STL) or STEP. Output as STL, OBJ, glTF or 3MF. Results of 3-axis flat-end-mill machining (including arc moves) can be exported as an analytic B-rep (planes and cylinders) in STEP, verified as valid solids in FreeCAD and OpenCASCADE.
 - **Verification.** Comparison against a design model (volumes and regions of excess material and gouges), shank/holder collision detection, removed volume and changed bounds per cut.
-- **Integration.** A pose-stream adapter that turns sampled tool poses into segments, incremental mesh transfer of changed tiles, and WebAssembly bindings for Web Workers and Node.
+- **Integration.** A pose-stream adapter that turns sampled tool poses into segments, incremental mesh transfer of changed tiles, and WebAssembly bindings for Web Workers and Node, with a browser demo that draws the cut in 3D as it progresses.
 
 ## Quick start
 
@@ -116,6 +116,7 @@ cargo run --release --example step_export -- out/            # sample shapes as 
 cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --tile 20   # replay a recorded pose stream
 cargo run --release --example compare_meshes -- a.stl b.stl  # excess and gouge volume between two meshes
 wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node && node cutrail-wasm/test/node_test.cjs 1000 10 20
+wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg && python3 -m http.server 8765 --directory cutrail-wasm/www   # 3D demo at http://localhost:8765/
 ```
 
 ## Dependencies

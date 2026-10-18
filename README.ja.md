@@ -16,7 +16,7 @@ Rust 製の切削シミュレーションコア。素材を三角形メッシュ
 - **一定の処理時間。** 素材をタイルに分けて保持し、重なるタイルだけに差分を適用する。10 万区間を処理しても 1 区間の時間は履歴で増えない。
 - **入出力。** 素材は直方体・円柱・メッシュ（STL）・STEP。出力は STL・OBJ・glTF・3MF。3 軸・フラットエンドミルの結果（円弧移動を含む）は平面と円柱の B-rep として STEP に書け、FreeCAD と OpenCASCADE で有効なソリッドとして読めることを確認している。
 - **検証。** 設計モデルとの比較（削り残し・削りすぎの体積と領域）、シャンク・ホルダーと素材の干渉検出、除去体積と変更範囲の報告。
-- **連携。** 時系列の姿勢を区間にまとめるアダプター、変更されたタイルだけを取り出す差分転送、Web Worker / Node 向けの WASM バインディング。
+- **連携。** 時系列の姿勢を区間にまとめるアダプター、変更されたタイルだけを取り出す差分転送、Web Worker / Node 向けの WASM バインディング。切削の進行を 3D で描くブラウザデモ付き。
 
 ## クイックスタート
 
@@ -117,6 +117,7 @@ cargo run --release --example step_export -- out/            # サンプル形�
 cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --tile 20   # 記録した姿勢ストリームの再生
 cargo run --release --example compare_meshes -- a.stl b.stl  # 2 つのメッシュの削り残し・削りすぎ体積
 wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node && node cutrail-wasm/test/node_test.cjs 1000 10 20
+wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg && python3 -m http.server 8765 --directory cutrail-wasm/www   # 3D デモ（http://localhost:8765/）
 ```
 
 ## 依存

@@ -1,21 +1,550 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8" />
-<title>cutrail worker demo</title>
-<pre id="log"></pre>
-<script type="module">
-  // Usage: wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg, then serve this directory statically
-  const log = (s) => (document.getElementById("log").textContent += s + "\n");
-  const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-  worker.onmessage = (ev) => {
-    const m = ev.data;
-    if (m.type === "ready") {
-      log(`ready: ${m.parts.length} tiles`);
-      const segments = [];
-      for (let i = 0; i < 200; i++) segments.push(10 + i * 0.5, 20, 15, 0, 0, 1, 10 + (i + 1) * 0.5, 20, 15, 0, 0, 1);
-      worker.postMessage({ type: "cut", segments: Float64Array.from(segments) });
-    } else if (m.type === "updated") {
-      log(`revision ${m.revision}: removed ${m.removed.toFixed(2)} mm3, ${m.meshes.length} tiles updated, remaining ${m.totalVolume.toFixed(1)} mm3`);
-    }
-  };
-  worker.postMessage({ type: "init", min: [0, 0, 0], max: [120, 40, 20], toolDiameter: 6, fluteLength: 20, tileSize: 10 });
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cutrail 3D demo</title>
+<style>
+  :root { color-scheme: dark; --bg: #15181d; --panel: #1f242b; --ink: #e6e9ef; --dim: #9aa3b2; --line: #2e353f; --accent: #4fc3f7; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+  body { display: flex; }
+  aside { width: 320px; flex: none; height: 100vh; overflow: auto; padding: 16px; background: var(--panel); border-right: 1px solid var(--line); }
+  canvas { flex: 1; width: 100%; height: 100vh; display: block; touch-action: none; }
+  h1 { margin: 0 0 2px; font-size: 18px; }
+  .hint { margin: 0 0 14px; color: var(--dim); }
+  label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 6px 0; }
+  label span { color: var(--dim); }
+  input[type=number], select { width: 130px; padding: 4px 6px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
+  select { width: 100%; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 12px 0; }
+  legend { color: var(--dim); padding: 0 4px; }
+  .buttons { display: flex; gap: 8px; margin: 12px 0; }
+  button { flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: #2a313b; color: var(--ink); cursor: pointer; }
+  button:hover { background: #343c48; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  #start { background: var(--accent); color: #0b1016; border-color: transparent; font-weight: 600; }
+  progress { width: 100%; height: 8px; accent-color: var(--accent); }
+  dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 10px 0; }
+  dt { color: var(--dim); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  #status { color: var(--dim); min-height: 1.4em; margin: 8px 0 0; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  @media (max-width: 720px) { body { flex-direction: column; } aside { width: 100%; height: auto; max-height: 45vh; } canvas { height: 55vh; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
 </script>
+</head>
+<body>
+<aside>
+  <h1>cutrail</h1>
+  <p class="hint">Material removal in a Web Worker, drawn tile by tile. Drag to orbit, wheel to zoom.</p>
+  <label><span>Path</span></label>
+  <select id="source">
+    <option value="zigzag">Zigzag pocket, 3-axis (200×100×20 mm, Ø6)</option>
+    <option value="chamfer">Rim chamfer, 5-axis (cutter leaning 45° around a plate)</option>
+    <option value="cone">Cone boss, 3-axis roughing + 5-axis swarf finish</option>
+    <option value="pocket">Drafted pocket, 3+5-axis (floor levels, then swarf walls)</option>
+    <option value="csv">Pose stream CSV (pose_stream format)…</option>
+  </select>
+  <input type="file" id="csvFile" accept=".csv,text/csv" hidden />
+  <div id="zigzagOpts">
+    <label><span>Segments</span><input id="segments" type="number" value="3000" min="10" step="100" /></label>
+    <label><span>Axis tilt (°, 0 = 3-axis)</span><input id="tilt" type="number" value="20" min="0" max="60" step="5" /></label>
+  </div>
+  <fieldset>
+    <legend>Engine</legend>
+    <label><span>Tile size (mm)</span><input id="tile" type="number" value="10" min="0" step="5" /></label>
+    <label><span>Chord tolerance (mm)</span><input id="chord" type="number" value="0.01" min="0.001" step="0.005" /></label>
+    <label><span>Max deviation (mm)</span><input id="deviation" type="number" value="0.01" min="0" step="0.005" /></label>
+    <label><span>Per step</span><input id="batch" type="number" value="10" min="1" step="10" /></label>
+  </fieldset>
+  <div class="buttons">
+    <button id="start">Start</button>
+    <button id="step">Step</button>
+    <button id="reset">Reset</button>
+  </div>
+  <progress id="progress" value="0" max="1"></progress>
+  <dl>
+    <dt>Progress</dt><dd id="sProgress">–</dd>
+    <dt>Segments cut</dt><dd id="sSegments">0</dd>
+    <dt>Removed</dt><dd id="sRemoved">0 mm³</dd>
+    <dt>Triangles</dt><dd id="sTriangles">0</dd>
+    <dt>Tiles</dt><dd id="sTiles">0</dd>
+    <dt>Last step</dt><dd id="sLast">–</dd>
+    <dt>Per segment</dt><dd id="sPer">–</dd>
+    <dt>Elapsed</dt><dd id="sElapsed">–</dd>
+  </dl>
+  <p><span class="swatch" style="background:#8a9099"></span>stock skin <span class="swatch" style="background:#f2f5fb; margin-left:10px"></span>cut surface</p>
+  <p id="status">loading…</p>
+</aside>
+<canvas id="view"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+const status = (s) => ($("status").textContent = s);
+
+// ---------------------------------------------------------------- scene
+const canvas = $("view");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x15181d);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 10000);
+camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2f36, 0.85));
+const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+sun.position.set(1, -1.6, 2.4);
+scene.add(sun);
+const stockMat = new THREE.MeshStandardMaterial({ color: 0x8a9099, flatShading: true, roughness: 0.65, metalness: 0.15 });
+const cutMat = new THREE.MeshStandardMaterial({ color: 0xf2f5fb, flatShading: true, roughness: 0.35, metalness: 0.25 });
+const toolMat = new THREE.MeshStandardMaterial({ color: 0xffb74d, roughness: 0.4, metalness: 0.5 });
+const shankMat = new THREE.MeshStandardMaterial({ color: 0xffb74d, transparent: true, opacity: 0.25 });
+const tileGroup = new THREE.Group();
+scene.add(tileGroup);
+const tiles = new Map();
+let pathLine = null;
+let toolMesh = null;
+let grid = null;
+let lastPose = null;      // the pose the cutter is heading to (tip xyz, axis xyz)
+let shownPose = null;     // where it is drawn, eased toward lastPose
+
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+(function frame() {
+  if (lastPose && shownPose) {
+    for (let i = 0; i < 6; i++) shownPose[i] += (lastPose[i] - shownPose[i]) * 0.35;
+    placeTool(shownPose.slice(0, 3), shownPose.slice(3, 6));
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+})();
+
+// A tile's mesh: stock-skin triangles first, then the cut surfaces, as two material groups.
+function setTile(m) {
+  const n = m.kinds.length;
+  let stockCount = 0;
+  for (let i = 0; i < n; i++) if (m.kinds[i] === 0) stockCount++;
+  const order = new Uint32Array(n * 3);
+  let s = 0, c = stockCount * 3;
+  for (let i = 0; i < n; i++) {
+    const dst = m.kinds[i] === 0 ? s : c;
+    order[dst] = m.indices[3 * i];
+    order[dst + 1] = m.indices[3 * i + 1];
+    order[dst + 2] = m.indices[3 * i + 2];
+    if (m.kinds[i] === 0) s += 3; else c += 3;
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
+  geom.setIndex(new THREE.BufferAttribute(order, 1));
+  geom.addGroup(0, stockCount * 3, 0);
+  geom.addGroup(stockCount * 3, (n - stockCount) * 3, 1);
+  geom.computeVertexNormals();
+  const old = tiles.get(m.id);
+  if (old) {
+    old.geometry.dispose();
+    old.geometry = geom;
+  } else {
+    const mesh = new THREE.Mesh(geom, [stockMat, cutMat]);
+    tiles.set(m.id, mesh);
+    tileGroup.add(mesh);
+  }
+}
+function keepTiles(alive) {
+  const keep = new Set(alive);
+  for (const [id, mesh] of tiles) {
+    if (!keep.has(id)) { tileGroup.remove(mesh); mesh.geometry.dispose(); tiles.delete(id); }
+  }
+}
+function clearTiles() { for (const [, mesh] of tiles) { tileGroup.remove(mesh); mesh.geometry.dispose(); } tiles.clear(); }
+
+// The cutter as a cylinder (plus the ball of a ball end mill) with a translucent shank above it,
+// placed at the tip and aligned with the tool axis.
+function makeTool(tool) {
+  const g = new THREE.Group();
+  const r = tool.diameter / 2;
+  const base = tool.kind === "ball" ? r : 0;
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(r, r, tool.flute - base, 32), toolMat);
+  cyl.position.y = base + (tool.flute - base) / 2;
+  g.add(cyl);
+  if (tool.kind === "ball") {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), toolMat);
+    ball.position.y = r;
+    g.add(ball);
+  }
+  const shank = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.9, r * 0.9, tool.flute * 1.5, 24), shankMat);
+  shank.position.y = tool.flute + tool.flute * 0.75;
+  g.add(shank);
+  return g;
+}
+const Y = new THREE.Vector3(0, 1, 0);
+function placeTool(tip, axis) {
+  if (!toolMesh) return;
+  toolMesh.position.set(tip[0], tip[1], tip[2]);
+  toolMesh.quaternion.setFromUnitVectors(Y, new THREE.Vector3(axis[0], axis[1], axis[2]).normalize());
+}
+
+function showPath(tips) {
+  if (pathLine) { scene.remove(pathLine); pathLine.geometry.dispose(); }
+  const stride = Math.max(1, Math.ceil(tips.length / 20000));
+  const pts = [];
+  for (let i = 0; i < tips.length; i += stride) pts.push(new THREE.Vector3(...tips[i]));
+  pathLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.45 }));
+  scene.add(pathLine);
+}
+
+function frameStock(min, max) {
+  const c = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+  const size = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  camera.near = size / 100;
+  camera.far = size * 50;
+  camera.updateProjectionMatrix();
+  camera.position.set(c[0] + size * 0.75, c[1] - size * 1.05, c[2] + size * 0.8);
+  controls.target.set(c[0], c[1], c[2]);
+  controls.update();
+  if (grid) scene.remove(grid);
+  grid = new THREE.GridHelper(size * 2, 20, 0x3a4350, 0x262c35);
+  grid.rotation.x = Math.PI / 2;
+  grid.position.set(c[0], c[1], min[2] - 0.01);
+  scene.add(grid);
+}
+
+// ----------------------------------------------------------- path sources
+// The bench pocket: a zigzag of 1 mm segments over a 200×100×20 mm block, stepping down 1.5 mm per
+// level, with the tool axis following a ±tilt sine about Y (period 40 segments).
+function zigzag(n, tilt) {
+  const pose = (p, k) => {
+    const a = tilt === 0 ? 0 : (tilt * Math.PI / 180) * Math.sin((2 * Math.PI * k) / 40);
+    return [p[0], p[1], p[2], Math.sin(a), 0, Math.cos(a)];
+  };
+  const data = [];
+  const tips = [];
+  let k = 0;
+  outer: for (let level = 0; ; level++) {
+    const z = 18.5 - 1.5 * level;
+    if (z < 1) break;
+    for (let r = 0; r < 46; r++) {
+      const y = 5 + 2 * r;
+      const forward = (r + level) % 2 === 0;
+      for (let i = 0; i < 190; i++) {
+        const a = forward ? 5 + i : 195 - i;
+        const b = forward ? a + 1 : a - 1;
+        data.push(...pose([a, y, z], k), ...pose([b, y, z], k + 1));
+        tips.push([a, y, z]);
+        k++;
+        if (k === n) break outer;
+      }
+    }
+  }
+  return { kind: "segments", stride: 12, data: Float64Array.from(data), tips, min: [0, 0, 0], max: [200, 100, 20], tool: { kind: "flat", diameter: 6, flute: 20 }, label: `zigzag, ${k} segments` };
+}
+
+// --- 5-axis presets. Each is a list of poses; consecutive poses become linear segments whose axis
+// rotates from one to the next (the engine subdivides the rotation by chord tolerance).
+function segmentsFromPoses(poses) {
+  const data = new Float64Array((poses.length - 1) * 12);
+  const tips = [];
+  for (let i = 0; i + 1 < poses.length; i++) {
+    data.set(poses[i], i * 12);
+    data.set(poses[i + 1], i * 12 + 6);
+    tips.push(poses[i].slice(0, 3));
+  }
+  tips.push(poses[poses.length - 1].slice(0, 3));
+  return { data, tips };
+}
+
+// A 5 mm chamfer around the top edge of a 120×80×15 mm plate: the Ø8 cutter leans 45° outward so its
+// flank cuts the chamfer face, and at each corner it turns in place, the lean direction precessing 90°.
+function chamfer() {
+  const [W, L, H] = [120, 80, 15];
+  const r = 4, lean = Math.PI / 4, size = 5;
+  const inset = r * Math.cos(lean);                 // tip inset from the edge
+  const z = H - size + r * Math.sin(lean);          // the lowest point of the tilted disk sits at the chamfer foot
+  const axis = (nx, ny) => [nx * Math.sin(lean), ny * Math.sin(lean), Math.cos(lean)];
+  const corners = [[inset, inset], [W - inset, inset], [W - inset, L - inset], [inset, L - inset]];
+  const normals = [[0, -1], [1, 0], [0, 1], [-1, 0]];     // outward normal of the edge after each corner
+  const poses = [];
+  for (let e = 0; e < 4; e++) {
+    const a = corners[e], b = corners[(e + 1) % 4], n = normals[e];
+    for (let k = 0; k <= 12; k++) {
+      const t = k / 12;
+      poses.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, z, ...axis(n[0], n[1])]);
+    }
+    const m = normals[(e + 1) % 4];
+    const a0 = Math.atan2(n[1], n[0]);
+    for (let k = 1; k <= 10; k++) {                // turn the lean toward the next edge, tip at the corner
+      const ang = a0 + (Math.PI / 2) * (k / 10);
+      poses.push([b[0], b[1], z, ...axis(Math.cos(ang), Math.sin(ang))]);
+    }
+    void m;
+  }
+  const { data, tips } = segmentsFromPoses(poses);
+  return { kind: "segments", stride: 12, data, tips, min: [0, 0, 0], max: [W, L, H], tool: { kind: "flat", diameter: 8, flute: 20 }, label: `rim chamfer, ${poses.length - 1} segments` };
+}
+
+// A truncated cone (radius 30 at the floor, 20 at the top) left standing in a 100×100×30 mm block.
+// The floor is roughed first with the cutter vertical (3-axis rows that step around the cone, retracting
+// over it), then the cone is finished with two swarf laps: the cutter leans toward the cone by its
+// half-angle so the flank sweeps the surface, and the axis turns a full circle every lap.
+function cone() {
+  const [W, L, H] = [100, 100, 30];
+  const c = [50, 50], floor = 10, r = 4;
+  const up = [0, 0, 1];
+  const poses = [];
+  const keepOut = 30 + r;                           // the vertical cutter stays clear of the cone foot
+  const rows = [];
+  for (let y = 2; y <= 98; y += 6) rows.push(y);
+  rows.forEach((y, i) => {
+    const forward = i % 2 === 0;
+    const [x0, x1] = forward ? [-2, 102] : [102, -2];
+    const line = (xa, xb) => {
+      const n = Math.max(1, Math.round(Math.abs(xb - xa) / 2));
+      for (let k = 0; k <= n; k++) poses.push([xa + (xb - xa) * (k / n), y, floor, ...up]);
+    };
+    const dy = y - c[1];
+    if (Math.abs(dy) < keepOut) {
+      const half = Math.sqrt(keepOut * keepOut - dy * dy);
+      const [xl, xr] = forward ? [c[0] - half, c[0] + half] : [c[0] + half, c[0] - half];
+      line(x0, xl);
+      poses.push([xl, y, H + 10, ...up], [xr, y, H + 10, ...up], [xr, y, floor, ...up]);   // hop over the cone
+      line(xr, x1);
+    } else {
+      line(x0, x1);
+    }
+  });
+  // One vertical lap around the foot cleans the cusps the straight rows leave against the keep-out circle.
+  poses.push([poses[poses.length - 1][0], poses[poses.length - 1][1], H + 10, ...up]);
+  poses.push([c[0] + keepOut, c[1], H + 10, ...up]);
+  for (let k = 0; k <= 120; k++) {
+    const phi = (2 * Math.PI * k) / 120;
+    poses.push([c[0] + keepOut * Math.cos(phi), c[1] + keepOut * Math.sin(phi), floor, ...up]);
+  }
+  const lean = Math.atan((30 - 20) / (H - floor));
+  const z = floor + r * Math.sin(lean);
+  poses.push([c[0] + keepOut, c[1], H + 10, ...up]);                                        // lift before the laps
+  for (const rho of [30 + r * Math.cos(lean) + 6, 30 + r * Math.cos(lean)]) {
+    poses.push([c[0] + rho, c[1], H + 10, ...up]);
+    for (let k = 0; k <= 120; k++) {
+      const phi = (2 * Math.PI * k) / 120;
+      poses.push([c[0] + rho * Math.cos(phi), c[1] + rho * Math.sin(phi), z,
+        -Math.sin(lean) * Math.cos(phi), -Math.sin(lean) * Math.sin(phi), Math.cos(lean)]);
+    }
+  }
+  const { data, tips } = segmentsFromPoses(poses);
+  return { kind: "segments", stride: 12, data, tips, min: [0, 0, 0], max: [W, L, H], tool: { kind: "flat", diameter: 8, flute: 24 }, label: `cone boss, ${poses.length - 1} segments` };
+}
+
+// A 60×40 mm pocket, 12 deep, in a 100×80×20 mm block: the floor is cleared in two 3-axis levels, then
+// each wall gets one swarf pass with the cutter leaning 15° outward, which leaves the walls drafted.
+function draftedPocket() {
+  const [W, L, H] = [100, 80, 20];
+  const pw = 60, pl = 40, depth = 12, r = 4, draft = (15 * Math.PI) / 180;
+  const cx = W / 2, cy = L / 2, zf = H - depth;
+  const poses = [];
+  const up = [0, 0, 1];
+  for (const z of [zf + 6, zf]) {
+    const rows = [];
+    for (let y = cy - pl / 2 + r; y <= cy + pl / 2 - r + 1e-9; y += 5) rows.push(y);
+    rows.forEach((y, i) => {
+      const [x0, x1] = i % 2 === 0 ? [cx - pw / 2 + r, cx + pw / 2 - r] : [cx + pw / 2 - r, cx - pw / 2 + r];
+      for (let k = 0; k <= 26; k++) poses.push([x0 + (x1 - x0) * (k / 26), y, z, ...up]);
+    });
+  }
+  // Swarf passes: the lowest point of the tilted disk runs along the wall foot, the flank up the wall.
+  const walls = [
+    { n: [1, 0], from: [cx + pw / 2, cy - pl / 2 + r], to: [cx + pw / 2, cy + pl / 2 - r] },
+    { n: [0, 1], from: [cx + pw / 2 - r, cy + pl / 2], to: [cx - pw / 2 + r, cy + pl / 2] },
+    { n: [-1, 0], from: [cx - pw / 2, cy + pl / 2 - r], to: [cx - pw / 2, cy - pl / 2 + r] },
+    { n: [0, -1], from: [cx - pw / 2 + r, cy - pl / 2], to: [cx + pw / 2 - r, cy - pl / 2] },
+  ];
+  const zw = zf + r * Math.sin(draft);
+  for (const w of walls) {
+    const axis = [w.n[0] * Math.sin(draft), w.n[1] * Math.sin(draft), Math.cos(draft)];
+    const inset = r * Math.cos(draft);
+    for (let k = 0; k <= 16; k++) {
+      const t = k / 16;
+      poses.push([w.from[0] + (w.to[0] - w.from[0]) * t - w.n[0] * inset, w.from[1] + (w.to[1] - w.from[1]) * t - w.n[1] * inset, zw, ...axis]);
+    }
+  }
+  const { data, tips } = segmentsFromPoses(poses);
+  return { kind: "segments", stride: 12, data, tips, min: [0, 0, 0], max: [W, L, H], tool: { kind: "flat", diameter: 8, flute: 20 }, label: `drafted pocket, ${poses.length - 1} segments` };
+}
+
+// The CSV written by cutrail's pose_stream example: `# stock_box` and `# tool` header lines, then
+// `t,x,y,z,ax,ay,az,...` per sampled pose, all in the stock frame and in millimeters.
+function parseCsv(text, name) {
+  let min = null, max = null;
+  let tool = { kind: "flat", diameter: 8, flute: 30 };
+  const data = [];
+  const tips = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) {
+      const f = line.slice(1).trim().split(/\s+/);
+      if (f[0] === "stock_box" && f.length >= 7) {
+        const v = f.slice(1, 7).map(Number);
+        min = v.slice(0, 3); max = v.slice(3, 6);
+      } else if (f[0] === "tool" && f.length >= 4) {
+        tool = { kind: f[1] === "ball" ? "ball" : "flat", diameter: Number(f[2]), flute: Number(f[3]) };
+      }
+      continue;
+    }
+    const v = line.split(",").slice(1, 7).map(Number);
+    if (v.length === 6 && v.every(Number.isFinite)) { data.push(...v); tips.push(v.slice(0, 3)); }
+  }
+  if (!min || !max) throw new Error('the CSV has no "# stock_box xmin ymin zmin xmax ymax zmax" line');
+  if (!data.length) throw new Error("the CSV has no pose rows");
+  return { kind: "poses", stride: 6, data: Float64Array.from(data), tips, min, max, tool, label: `${name}, ${tips.length} poses` };
+}
+
+// ---------------------------------------------------------------- playback
+const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+let run = null;        // the current path: data, cursor, …
+let cursor = 0;
+let running = false;
+let inflight = false;
+let flushed = false;
+let initialVolume = 0;
+let cutMs = 0;
+let startedAt = 0;
+let elapsedMs = 0;
+
+function num(id) { return Number($(id).value); }
+function setButtons() {
+  const done = run && cursor >= run.data.length && (run.kind !== "poses" || flushed);
+  $("start").textContent = running ? "Pause" : "Start";
+  $("start").disabled = !run || done;
+  $("step").disabled = !run || running || done;
+}
+function fmtVol(v) { return v >= 1000 ? `${(v / 1000).toFixed(2)} cm³` : `${v.toFixed(1)} mm³`; }
+function updateStats(m) {
+  const done = cursor / run.data.length;
+  $("progress").value = done;
+  $("sProgress").textContent = `${Math.round(done * 100)}%`;
+  $("sSegments").textContent = m.segments.toLocaleString();
+  const removed = initialVolume - m.totalVolume;
+  $("sRemoved").textContent = `${fmtVol(removed)} (${((removed / initialVolume) * 100).toFixed(1)}%)`;
+  $("sTriangles").textContent = m.totalTriangles.toLocaleString();
+  $("sTiles").textContent = `${m.alive.length} (${m.meshes.length} updated)`;
+  $("sLast").textContent = `${m.ms.toFixed(1)} ms`;
+  $("sPer").textContent = m.segments ? `${(cutMs / m.segments).toFixed(2)} ms` : "–";
+  $("sElapsed").textContent = `${((elapsedMs + (running ? performance.now() - startedAt : 0)) / 1000).toFixed(1)} s`;
+}
+
+function initEngine() {
+  running = false; inflight = true; flushed = false; cursor = 0; cutMs = 0; elapsedMs = 0;
+  clearTiles();
+  status("building the stock…");
+  worker.postMessage({
+    type: "init",
+    min: run.min, max: run.max, tool: run.tool,
+    tileSize: num("tile"), sweepTolerance: num("chord"),
+    stream: { minDistance: 5.0, minAngle: 2.0, maxDeviation: num("deviation") },
+  });
+}
+
+function step() {
+  if (!run || inflight) return;
+  if (cursor >= run.data.length) {
+    if (run.kind === "poses" && !flushed) { flushed = true; inflight = true; worker.postMessage({ type: "flush" }); }
+    return;
+  }
+  const per = Math.max(1, num("batch")) * run.stride;
+  const chunk = run.data.slice(cursor, cursor + per);
+  cursor += chunk.length;
+  // The last pose of the batch, copied out before the buffer is transferred (a transferred array is empty)
+  lastPose = Array.from(chunk.subarray(chunk.length - 6));
+  inflight = true;
+  worker.postMessage({ type: run.kind, data: chunk }, [chunk.buffer]);
+}
+
+worker.onmessage = (ev) => {
+  const m = ev.data;
+  if (m.type === "error") { status(`error: ${m.message}`); running = false; inflight = false; setButtons(); return; }
+  inflight = false;
+  if (m.type === "ready") {
+    initialVolume = m.totalVolume;
+    for (const mesh of m.meshes) setTile(mesh);
+    if (toolMesh) scene.remove(toolMesh);
+    toolMesh = makeTool(run.tool);
+    scene.add(toolMesh);
+    lastPose = Array.from(run.data.subarray(0, 6));
+    shownPose = lastPose.slice();
+    placeTool(shownPose.slice(0, 3), shownPose.slice(3, 6));
+    showPath(run.tips);
+    frameStock(run.min, run.max);
+    updateStats(m);
+    status(`ready: ${run.label}, ${m.alive.length} tiles, ${fmtVol(initialVolume)} of stock`);
+    setButtons();
+    return;
+  }
+  cutMs += m.ms;
+  for (const mesh of m.meshes) setTile(mesh);
+  keepTiles(m.alive);
+  updateStats(m);
+  const done = cursor >= run.data.length && (run.kind !== "poses" || flushed);
+  if (done) {
+    if (running) { elapsedMs += performance.now() - startedAt; running = false; }
+    status(`done: ${m.segments.toLocaleString()} segments in ${(elapsedMs / 1000).toFixed(1)} s`);
+    setButtons();
+    return;
+  }
+  if (running) requestAnimationFrame(step);
+  else status("paused");
+  setButtons();
+};
+
+const presets = { chamfer, cone, pocket: draftedPocket };
+function loadSource() {
+  const kind = $("source").value;
+  $("zigzagOpts").hidden = kind !== "zigzag";
+  if (kind === "zigzag") {
+    run = zigzag(Math.max(10, Math.floor(num("segments"))), num("tilt"));
+    initEngine();
+  } else if (presets[kind]) {
+    run = presets[kind]();
+    initEngine();
+  } else {
+    $("csvFile").click();
+  }
+}
+$("csvFile").addEventListener("change", async () => {
+  const file = $("csvFile").files[0];
+  if (!file) return;
+  try {
+    run = parseCsv(await file.text(), file.name);
+    initEngine();
+  } catch (e) {
+    status(`error: ${e.message}`);
+  }
+});
+$("source").addEventListener("change", loadSource);
+$("reset").addEventListener("click", () => { if (run && run.kind === "poses") initEngine(); else loadSource(); });
+$("start").addEventListener("click", () => {
+  if (!run) return;
+  running = !running;
+  if (running) { startedAt = performance.now(); step(); } else { elapsedMs += performance.now() - startedAt; }
+  setButtons();
+});
+$("step").addEventListener("click", () => { step(); setButtons(); });
+setButtons();
+loadSource();
+</script>
+</body>
+</html>

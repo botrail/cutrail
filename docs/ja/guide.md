@@ -179,7 +179,16 @@ cargo run --release --example pose_stream -- poses.csv --max-deviation 0.01 --ti
 ```sh
 wasm-pack build cutrail-wasm --target nodejs --release --out-dir pkg-node
 node cutrail-wasm/test/node_test.cjs 1000 10 20        # 区間数 タイル 傾き
-wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg   # Web Worker（cutrail-wasm/www/）
+wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg   # 3D デモ（cutrail-wasm/www/ を静的配信する）
 ```
 
 WASM は単一スレッドで、処理時間は native の 1.5 倍程度。
+
+### 3D デモ
+
+`cutrail-wasm/www/` はブラウザで動くデモで、Web Worker がエンジンを持ち、ページ側が three.js で素材をタイルごとに描画する（各ステップで変わったタイルだけを差し替える）。残った素材の表面と工具が作った面は色分けされ（`mesh_with_kinds`）、工具は現在の姿勢に描かれ、除去体積・三角形数・1 区間あたりの時間が表示される。経路は内蔵のもの（3 軸のジグザグポケット（軸の ±傾きを指定可）、工具を 45° 傾けて角で向きを変える縁の面取り、3 軸で荒取りしてから軸が 1 周ごとに歳差する 5 軸スワーフで仕上げる円錐ボス、スワーフで抜き勾配の壁を作るポケット）か、`examples/pose_stream.rs` と同じ形式の姿勢ストリーム CSV（`# stock_box` と `# tool` のヘッダ行、1 行に `t,x,y,z,ax,ay,az`）を読み込める。CSV は Worker 内で `push_poses` / `flush` により区間にまとめられる。
+
+```sh
+wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg
+python3 -m http.server 8765 --directory cutrail-wasm/www    # http://localhost:8765/ を開く
+```
