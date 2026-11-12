@@ -25,6 +25,8 @@ serde = { version = "1", features = ["derive"], optional = true }
 thiserror = "2"
 # SolidCore's STEP and tessellation crates are not published yet. Keep every layer
 # on the same reviewed snapshot rather than following its moving main branch.
+solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "10ea8361a46eed8f42c32c32c6a006a0a7adb4a8", optional = true }
+solidcore-convert = { git = "https://github.com/tangency-labs/solidcore", rev = "10ea8361a46eed8f42c32c32c6a006a0a7adb4a8", optional = true }
 solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "10ea8361a46eed8f42c32c32c6a006a0a7adb4a8", optional = true }
 solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "10ea8361a46eed8f42c32c32c6a006a0a7adb4a8", optional = true }
 solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "10ea8361a46eed8f42c32c32c6a006a0a7adb4a8", optional = true }
@@ -39,7 +41,7 @@ parallel = ["manifold-rust/parallel"]
 # Serialize / Deserialize for poses, segments, tools, options, reports, meshes and B-reps.
 serde = ["dep:serde"]
 # Reading and retaining STEP CAD models, then tessellating stock and design meshes.
-stepio = ["dep:solidcore-step", "dep:solidcore-tess", "dep:solidcore-record", "dep:solidcore-ops"]
+stepio = ["dep:solidcore", "dep:solidcore-convert", "dep:solidcore-step", "dep:solidcore-tess", "dep:solidcore-record", "dep:solidcore-ops"]
 
 [dev-dependencies]
 serde_json = "1"

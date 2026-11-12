@@ -23,7 +23,7 @@ Output: per-tile display meshes, STL / OBJ / glTF / 3MF, B-rep STEP, comparison 
 
 The stock is a closed triangle mesh owned by the kernel (by default [manifold-rust](https://crates.io/crates/manifold-rust)). A cut is the boolean "stock minus swept volume", and the kernel guarantees that the result is a manifold mesh.
 
-Machining repeatedly creates coincident and touching faces, while the cost of a cut must stay local to the affected tiles. The engine uses mesh booleans for these state changes. B-reps stay at the boundaries: `step::StepModel` retains the imported SolidCore CAD records and can tessellate them at different tolerances; the machined result is exported to STEP after analytic surface reconstruction. Cutting the mesh does not modify the retained input CAD.
+Machining repeatedly creates coincident and touching faces, while the cost of a cut must stay local to the affected tiles. The engine uses mesh booleans for these state changes. B-reps stay at the boundaries: `step::StepModel` retains the imported SolidCore CAD records in local coordinates, with per-instance world transforms and paths, and tessellates placed meshes at different tolerances; the machined result is exported to STEP after analytic surface reconstruction. Cutting the mesh does not modify the retained input CAD.
 
 ## Swept volumes
 

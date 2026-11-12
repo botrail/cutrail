@@ -2,6 +2,10 @@
 
 ## 0.1.1 (unreleased)
 
+- High-degree and interior NURBS trims without an exact inverse can use adaptive cubic UV fitting. Outward-rounded Bernstein bounds verify the full 3D deviation against the input geometry tolerance; original surfaces and edges are retained, and fit diagnostics are saved with the CAD records.
+
+- STEP import expands nested assembly and mapped instances, retaining local CAD, world transforms and instance paths. Meshes and stock apply placements, mirrors and scale-aware chord tolerances. Exact rational boundary pcurves also support bilinear NURBS patches that previously failed to import.
+
 - `stepio` now uses SolidCore instead of truck. `StepModel` retains imported analytic/NURBS CAD records, names, face IDs and repair notes, and can be tessellated at different tolerances or serialized with `serde`. Stock imports preserve inner voids and reject partial results and unsupported placements.
 - `MachiningEngine::mesh_with_kinds`: the mesh of one cell with the stock / cut kind of every triangle, for incremental display of tiled stock.
 - `cutrail-wasm`: `mesh_with_kinds`, pose streaming (`set_stream`, `push_poses`, `flush`), `set_bull_nose_end_mill`, `segment_count`; `www/` is now a three.js demo that draws the cut tile by tile, with 3-axis and 5-axis presets (zigzag, rim chamfer, cone swarf, drafted pocket) and pose-stream CSV replay.

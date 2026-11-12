@@ -130,14 +130,25 @@ let cad = cutrail::step::model_from_step_file("stock.step")?;
 let shapes = cad.stock_shapes(0.01)?;
 let engine = Engine::new(ManifoldKernel, &shapes, options)?;
 let finer_display = cad.meshes(0.005)?;
-let input_brep = cad.bodies()[0].brep();
+let instance = &cad.bodies()[0];
+let local_brep = instance.brep();
+let local_to_world = instance.transform();
+let instance_path = instance.instance_path();
 ```
 
 The engine cuts mesh stock; the retained CAD describes the imported model and is not updated by cuts. `engine.reconstruct_brep()` remains the separate reconstruction of the machined result. With feature `serde`, `StepModel` can also be saved as JSON and loaded back.
 
-Lengths are converted to millimetres. Flat multi-body models and solids with voids are supported; open sheets can be retained and meshed but cannot be stock. Placed assemblies, mapped instances and unsupported solid representations are rejected. A body conversion failure or a tessellation with missing faces, lenient fills or an unmet chord tolerance is an error for the whole request. The chord tolerance controls mesh approximation, while input uncertainty and fitted trims are reported by the CAD reader.
+Lengths are converted to mm. Each body's B-rep stays in local coordinates; `transform()` gives its world placement. The row-vector convention is `world[j] = Σ local[i] * matrix[i][j] + matrix[3][j]`. `mesh()`, `meshes()` and `stock_shapes()` already apply the placement; do not apply it again. Repeated uses of shared CAD are separate `StepBody` instances, identified by `entity()` together with `instance_path()`. The path contains the root product-definition ID (a representation ID for geometry-only files), followed by occurrence and mapped-item IDs.
 
-NURBS support depends on the trims the pinned kernel can construct. For example, a rational planar patch whose straight boundary needs a nonlinear pcurve is currently refused; it is not silently flattened. Shape representations containing other unsupported geometry items are refused as well.
+Nested assemblies, `ITEM_DEFINED_TRANSFORMATION`, transformed representation relationships and `REPRESENTATION_MAP` / `MAPPED_ITEM` are supported. Rotations, translations, mirrors and non-uniform scales are applied, with chord tolerance measured in world mm. Mirroring also reverses triangle winding. Missing, conflicting or cyclic placements, singular transforms, and unreachable mapped items/bodies are errors. Placed models are returned in product-tree order; ordinary flat models remain in source body-ID order.
+
+Solids retain their inner voids. Open sheets can be retained and meshed for display, but cannot be stock. Unsupported solid representations, unreadable bodies, missing faces, lenient fills and unmet refinement tolerances reject the entire import. Chord tolerance controls mesh approximation; input uncertainty and trim information remain part of the CAD record.
+
+Exact pcurves are preferred: the kernel's existing forms and exact rational inverses along straight sides of bilinear rational patches. Where a higher-degree surface or an interior boundary has no supported exact formula, the importer generates a tolerance-bounded piecewise cubic UV spline, retaining the original surface and 3D edge. Outer boundaries, inner loops, closed curves, non-unit parameter intervals and boundaries crossing surface knot cells are supported.
+
+Samples alone never accept a fitted trim. Each candidate is composed with the surface's Bézier cells; the Bernstein control-point convex hull bounds its complete 3D difference from the source edge. All bounding operations use outward-rounded intervals. Adaptive refinement continues until the upper bound is at most one quarter of the smaller face/edge geometry tolerance in the imported records. This is local CAD mm, separate from the mesh chord tolerance. `StepBody::notes()` records fitted-use counts, span counts and the deviation bound, including in `serde` saves. Fitting does not replace the source surface or edge, or enlarge their geometry tolerances.
+
+Bounded fitting takes B-spline/NURBS surfaces and spline edges of degree 1–16 with positive weights. Unprojectable boundaries, non-positive weights, unresolved parameter-domain/seam cases and unproved bounds remain errors. Each pcurve is limited to 1024 cubic spans, with additional depth, work and surface-patch budgets. Reaching a limit never returns an unchecked trim or a partial body. Other unsupported geometry items in a shape representation are refused as well.
 
 SolidCore's STEP/tessellation crates currently come from the Git revision pinned in `Cargo.toml`, not crates.io. Publishing this version of Cutrail to crates.io requires those dependencies to be published or packaged separately first.
 

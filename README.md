@@ -26,7 +26,7 @@ cutrail = "0.1"
 
 | Cargo feature | Adds |
 |---|---|
-| `stepio` | STEP import and retained analytic/NURBS CAD models (via SolidCore) |
+| `stepio` | STEP import, placed assemblies and retained analytic/NURBS CAD models (via SolidCore) |
 | `serde` | `Serialize` / `Deserialize` for poses, segments, tools, options, reports, meshes and B-reps |
 | `parallel` | Parallel booleans in manifold-rust (native only) |
 

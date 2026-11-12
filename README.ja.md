@@ -27,7 +27,7 @@ cutrail = "0.1"
 
 | Cargo feature | 追加されるもの |
 |---|---|
-| `stepio` | STEP 読込と解析面・NURBS の CAD モデル保持（SolidCore 経由） |
+| `stepio` | STEP・配置付きアセンブリ読込と解析面・NURBS の CAD モデル保持（SolidCore 経由） |
 | `serde` | 姿勢・区間・工具・設定・レポート・メッシュ・B-rep の `Serialize` / `Deserialize` |
 | `parallel` | manifold-rust の並列ブーリアン（native のみ） |
 

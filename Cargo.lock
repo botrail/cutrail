@@ -76,6 +76,8 @@ dependencies = [
  "manifold-rust",
  "serde",
  "serde_json",
+ "solidcore",
+ "solidcore-convert",
  "solidcore-ops",
  "solidcore-record",
  "solidcore-step",
