@@ -1,0 +1,66 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Shape Data from Truck'), '2;1');
+FILE_NAME('', '2026-11-12T00:00:00Z', (('')), (('')), 'truck', '', '');
+FILE_SCHEMA(('ISO-10303-042'));
+ENDSEC;
+DATA;
+#1 = APPLICATION_PROTOCOL_DEFINITION('international standard', 'automotive_design', 2000, #2);
+#2 = APPLICATION_CONTEXT('core data for automotive mechanical design processes');
+#3 = SHAPE_DEFINITION_REPRESENTATION(#4, #10);
+#4 = PRODUCT_DEFINITION_SHAPE('','', #5);
+#5 = PRODUCT_DEFINITION('design','', #6, #9);
+#6 = PRODUCT_DEFINITION_FORMATION('','', #7);
+#7 = PRODUCT('','','', (#8));
+#8 = PRODUCT_CONTEXT('', #2, 'mechanical');
+#9 = PRODUCT_DEFINITION_CONTEXT('part definition', #2, 'design');
+#10 = ADVANCED_BREP_SHAPE_REPRESENTATION('', (#16), #11);
+#11 = (
+    GEOMETRIC_REPRESENTATION_CONTEXT(3) 
+    GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#15))
+    GLOBAL_UNIT_ASSIGNED_CONTEXT((#12, #13, #14))
+    REPRESENTATION_CONTEXT('Context #1', '3D Context with UNIT and UNCERTAINTY')
+);
+#12 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );
+#13 = ( NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.) );
+#14 = ( NAMED_UNIT(*) SI_UNIT($,.STERADIAN.) SOLID_ANGLE_UNIT() );
+#15 = UNCERTAINTY_MEASURE_WITH_UNIT(1.0E-6, #12, 'distance_accuracy_value','confusion accuracy');
+#16=MANIFOLD_SOLID_BREP('analytic cylinder',#17);
+#17=CLOSED_SHELL('',(#18,#19,#20));
+#18=ADVANCED_FACE('',(#21),#30,.T.);
+#19=ADVANCED_FACE('',(#22),#31,.F.);
+#20=ADVANCED_FACE('',(#23),#32,.T.);
+#21=FACE_OUTER_BOUND('',#24,.T.);
+#22=FACE_OUTER_BOUND('',#25,.T.);
+#23=FACE_OUTER_BOUND('',#26,.T.);
+#24=EDGE_LOOP('',(#40,#41,#42,#43));
+#25=EDGE_LOOP('',(#44));
+#26=EDGE_LOOP('',(#45));
+#30=CYLINDRICAL_SURFACE('',#60,5.);
+#31=PLANE('',#60);
+#32=PLANE('',#61);
+#40=ORIENTED_EDGE('',*,*,#50,.T.);
+#41=ORIENTED_EDGE('',*,*,#52,.T.);
+#42=ORIENTED_EDGE('',*,*,#51,.F.);
+#43=ORIENTED_EDGE('',*,*,#52,.F.);
+#44=ORIENTED_EDGE('',*,*,#50,.F.);
+#45=ORIENTED_EDGE('',*,*,#51,.T.);
+#50=EDGE_CURVE('',#80,#80,#70,.T.);
+#51=EDGE_CURVE('',#81,#81,#71,.T.);
+#52=EDGE_CURVE('',#80,#81,#72,.T.);
+#60=AXIS2_PLACEMENT_3D('',#90,#92,#93);
+#61=AXIS2_PLACEMENT_3D('',#91,#92,#93);
+#70=CIRCLE('',#60,5.);
+#71=CIRCLE('',#61,5.);
+#72=LINE('',#94,#73);
+#73=VECTOR('',#92,10.);
+#80=VERTEX_POINT('',#94);
+#81=VERTEX_POINT('',#95);
+#90=CARTESIAN_POINT('',(0.,0.,0.));
+#91=CARTESIAN_POINT('',(0.,0.,10.));
+#92=DIRECTION('',(0.,0.,1.));
+#93=DIRECTION('',(1.,0.,0.));
+#94=CARTESIAN_POINT('',(5.,0.,0.));
+#95=CARTESIAN_POINT('',(5.,0.,10.));
+ENDSEC;
+END-ISO-10303-21;

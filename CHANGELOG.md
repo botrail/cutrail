@@ -2,6 +2,7 @@
 
 ## 0.1.1 (unreleased)
 
+- `stepio` now uses SolidCore instead of truck. `StepModel` retains imported analytic/NURBS CAD records, names, face IDs and repair notes, and can be tessellated at different tolerances or serialized with `serde`. Stock imports preserve inner voids and reject partial results and unsupported placements.
 - `MachiningEngine::mesh_with_kinds`: the mesh of one cell with the stock / cut kind of every triangle, for incremental display of tiled stock.
 - `cutrail-wasm`: `mesh_with_kinds`, pose streaming (`set_stream`, `push_poses`, `flush`), `set_bull_nose_end_mill`, `segment_count`; `www/` is now a three.js demo that draws the cut tile by tile, with 3-axis and 5-axis presets (zigzag, rim chamfer, cone swarf, drafted pocket) and pose-stream CSV replay.
 

@@ -26,7 +26,7 @@ cutrail = "0.1"
 
 | Cargo feature | Adds |
 |---|---|
-| `stepio` | Reading stock and design models from STEP (via truck) |
+| `stepio` | STEP import and retained analytic/NURBS CAD models (via SolidCore) |
 | `serde` | `Serialize` / `Deserialize` for poses, segments, tools, options, reports, meshes and B-reps |
 | `parallel` | Parallel booleans in manifold-rust (native only) |
 
@@ -75,7 +75,7 @@ let seg = MotionSegment::linear(
 | `CutReport`, `CutOutcome`, `Collision` | Result of one cut (`NoChange` / `Updated` / `Exhausted`, removed volume, changed bounds, collision) |
 | `TriMesh` | Mesh I/O (STL and OBJ in; STL, OBJ, glTF, 3MF out) and vertex merging |
 | `StockShape` | Box, cylinder or mesh stock |
-| `step` (feature `stepio`) | Read stock and design models from STEP |
+| `step` (feature `stepio`) | Read STEP stock/design meshes or retain CAD geometry in a `StepModel` |
 | `Brep` | Reconstructed analytic B-rep and STEP export |
 | `DesignComparison` | Difference against a design model (excess material and gouges) |
 | `SegmentBuilder` | Coalesces sampled poses into segments by distance and angle thresholds and a chord-deviation bound |
@@ -122,7 +122,7 @@ wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg && python3
 ## Dependencies
 
 - [manifold-rust](https://github.com/larsbrubaker/manifold-rust) (Apache-2.0): mesh booleans
-- [truck](https://github.com/ricosjp/truck) (Apache-2.0, feature `stepio`): STEP reading and tessellation
+- [SolidCore](https://github.com/tangency-labs/solidcore) (Apache-2.0, feature `stepio`): STEP reading, retained CAD records and tessellation; its unpublished crates are pinned to a Git revision (see [guide](docs/guide.md))
 - [zip](https://crates.io/crates/zip) for 3MF, [web-time](https://crates.io/crates/web-time) for timing in WebAssembly, [thiserror](https://crates.io/crates/thiserror)
 
 ## License

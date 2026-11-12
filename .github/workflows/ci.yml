@@ -34,6 +34,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --target wasm32-unknown-unknown -p cutrail-wasm
+      - run: cargo check --lib --target wasm32-unknown-unknown --features serde,stepio
 
   msrv:
     runs-on: ubuntu-latest

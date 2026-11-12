@@ -80,7 +80,7 @@ impl TriMesh {
 impl TriMesh {
     /// Merges vertices within `tolerance` of each other and drops degenerate triangles. Returns the number of vertices removed.
     ///
-    /// STL files and truck tessellations keep separate vertices per face, so this merge is needed before the mesh can be treated as a closed manifold.
+    /// STL files and CAD tessellations can keep separate vertices per face, so this merge is needed before the mesh can be treated as a closed manifold.
     pub fn merge_vertices(&mut self, tolerance: f64) -> usize {
         use std::collections::HashMap;
         let cell = tolerance.max(1e-12);

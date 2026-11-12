@@ -33,7 +33,7 @@ engine.write_step(std::fs::File::create("machined.step")?, "machined")?;
 | Ball end mill plunge (Ø4) | (294, 0), facets | (588, 0, 0) |
 | Pass with the axis tilted 20° (Ø4) | (57, 0), facets | (145, 0, 0) |
 
-Opened in FreeCAD 1.1.1 (File → Open and `Part.read`), each file is a single closed solid that passes `Shape.check(True)`. OpenCASCADE 7.8.1 (`BRepCheck_Analyzer`) reports every file valid with a maximum shape tolerance of 1e-7 mm, and the volumes equal the analytic values: 949.73 mm³ for the cube with the blind hole, where the polygonal mesh has 949.90 mm³. The tiled pocket reconstructs to the same 23 faces as the untiled one. Reading the STEP back with truck-stepio gives a closed mesh with the same volume.
+Opened in FreeCAD 1.1.1 (File → Open and `Part.read`), each file is a single closed solid that passes `Shape.check(True)`. OpenCASCADE 7.8.1 (`BRepCheck_Analyzer`) reports every file valid with a maximum shape tolerance of 1e-7 mm, and the volumes equal the analytic values: 949.73 mm³ for the cube with the blind hole, where the polygonal mesh has 949.90 mm³. The tiled pocket reconstructs to the same 23 faces as the untiled one. The STEP round-trip test reads back with SolidCore and checks a closed mesh and volume agreement within tessellation error.
 
 ## Limitations
 

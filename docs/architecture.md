@@ -23,7 +23,7 @@ Output: per-tile display meshes, STL / OBJ / glTF / 3MF, B-rep STEP, comparison 
 
 The stock is a closed triangle mesh owned by the kernel (by default [manifold-rust](https://crates.io/crates/manifold-rust)). A cut is the boolean "stock minus swept volume", and the kernel guarantees that the result is a manifold mesh.
 
-A B-rep stock updated by one boolean per segment was deliberately not chosen. Machining produces floors at the same depth and walls along the same path on every pass, and B-rep booleans tend to fail on exactly these coincident and touching faces. Trials with several Rust B-rep kernels failed almost every coincident or touching case, and in sequences of cuts the time per boolean grew with the face count. Mesh booleans handled every case and ran 1,000 consecutive cuts without a failure. B-rep is therefore used only at the boundaries: reading STEP, and writing STEP after reconstructing analytic surfaces.
+Machining repeatedly creates coincident and touching faces, while the cost of a cut must stay local to the affected tiles. The engine uses mesh booleans for these state changes. B-reps stay at the boundaries: `step::StepModel` retains the imported SolidCore CAD records and can tessellate them at different tolerances; the machined result is exported to STEP after analytic surface reconstruction. Cutting the mesh does not modify the retained input CAD.
 
 ## Swept volumes
 
@@ -55,6 +55,6 @@ Manifold keeps, for every output triangle, the identity of the input it came fro
 | `brep` | Analytic surface reconstruction and STEP writing |
 | `compare` | Result of comparing against a design model |
 | `stream` | Adapter that coalesces sampled poses into segments |
-| `step` (feature `stepio`) | STEP reading via truck-stepio |
+| `step` (feature `stepio`) | SolidCore STEP reading, retained CAD records, and validated tessellation for mesh stock/design models |
 
 The `Kernel` trait defines solid construction (stock, mesh, swept volume), difference, intersection and union, volume, meshing, and provenance access. Another mesh boolean library or a volumetric representation (such as dexels) can be placed behind the same boundary.

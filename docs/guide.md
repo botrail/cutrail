@@ -116,12 +116,32 @@ mesh.merge_vertices(1e-4);                              // also done on import; 
 let engine = Engine::new(ManifoldKernel, &[StockShape::Mesh(mesh)], options)?;
 ```
 
-STEP files are read with feature `stepio` (truck-stepio reads the B-rep, which is tessellated and vertex-merged):
+STEP files are read with feature `stepio`. SolidCore reads the CAD geometry and tessellates it into validated meshes for the machining engine:
 
 ```rust
-let shapes = cutrail::step::stock_from_step_file("stock.step", 0.01)?;   // one StockShape::Mesh per shell
+let shapes = cutrail::step::stock_from_step_file("stock.step", 0.01)?;   // one StockShape::Mesh per solid, including its voids
 let design = cutrail::step::meshes_from_step_file("design.step", 0.01)?; // meshes for comparison
 ```
+
+To keep the CAD geometry, load a `StepModel` first. It holds SolidCore's analytic/NURBS B-rep records, source body and face entity IDs, names, and reader repair notes. Mesh it again at another tolerance without rereading STEP:
+
+```rust
+let cad = cutrail::step::model_from_step_file("stock.step")?;
+let shapes = cad.stock_shapes(0.01)?;
+let engine = Engine::new(ManifoldKernel, &shapes, options)?;
+let finer_display = cad.meshes(0.005)?;
+let input_brep = cad.bodies()[0].brep();
+```
+
+The engine cuts mesh stock; the retained CAD describes the imported model and is not updated by cuts. `engine.reconstruct_brep()` remains the separate reconstruction of the machined result. With feature `serde`, `StepModel` can also be saved as JSON and loaded back.
+
+Lengths are converted to millimetres. Flat multi-body models and solids with voids are supported; open sheets can be retained and meshed but cannot be stock. Placed assemblies, mapped instances and unsupported solid representations are rejected. A body conversion failure or a tessellation with missing faces, lenient fills or an unmet chord tolerance is an error for the whole request. The chord tolerance controls mesh approximation, while input uncertainty and fitted trims are reported by the CAD reader.
+
+NURBS support depends on the trims the pinned kernel can construct. For example, a rational planar patch whose straight boundary needs a nonlinear pcurve is currently refused; it is not silently flattened. Shape representations containing other unsupported geometry items are refused as well.
+
+SolidCore's STEP/tessellation crates currently come from the Git revision pinned in `Cargo.toml`, not crates.io. Publishing this version of Cutrail to crates.io requires those dependencies to be published or packaged separately first.
+
+Rust/WASM consumers can pass file text to `model_from_step_str`; STEP import is not exposed by the `cutrail-wasm` JavaScript bindings. When linking a WASM consumer with `stepio`, follow SolidCore's 8 MiB stack recommendation (`-C link-arg=-zstack-size=8388608`). The STEP feature is checked for WASM compilation; its browser/Node runtime has not been qualified.
 
 ## Comparing against a design model
 

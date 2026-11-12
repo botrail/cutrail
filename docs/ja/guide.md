@@ -116,12 +116,32 @@ mesh.merge_vertices(1e-4);                              // 取り込み時にも
 let engine = Engine::new(ManifoldKernel, &[StockShape::Mesh(mesh)], options)?;
 ```
 
-STEP は feature `stepio` で読める（truck-stepio で B-rep を読み、メッシュ化して頂点を併合する）。
+STEP は feature `stepio` で読める。SolidCore で CAD 形状を読み、検証したメッシュを切削エンジンに渡す。
 
 ```rust
-let shapes = cutrail::step::stock_from_step_file("stock.step", 0.01)?;   // シェルごとに StockShape::Mesh
+let shapes = cutrail::step::stock_from_step_file("stock.step", 0.01)?;   // 内部空洞を含め、ソリッドごとに StockShape::Mesh
 let design = cutrail::step::meshes_from_step_file("design.step", 0.01)?; // 比較用のメッシュ
 ```
+
+CAD 形状を保持する場合は、先に `StepModel` を読み込む。SolidCore の解析面・NURBS の B-rep、元のボディ・面のエンティティ ID、名前、読込時の修復情報を保持し、STEP を読み直さずに別の公差でメッシュ化できる。
+
+```rust
+let cad = cutrail::step::model_from_step_file("stock.step")?;
+let shapes = cad.stock_shapes(0.01)?;
+let engine = Engine::new(ManifoldKernel, &shapes, options)?;
+let finer_display = cad.meshes(0.005)?;
+let input_brep = cad.bodies()[0].brep();
+```
+
+エンジンが切削するのはメッシュの素材で、保持した CAD は読込時の形状のまま変化しない。加工後の形状は従来どおり `engine.reconstruct_brep()` で別途復元する。feature `serde` を有効にすると、`StepModel` を JSON に保存して読み戻せる。
+
+長さは mm に変換する。配置変換のない複数ボディと内部空洞付きソリッドに対応する。開いたシートは保持・表示用メッシュ化ができるが、素材には使えない。配置付きアセンブリ、マップされたインスタンス、未対応のソリッド表現はエラーになる。ボディの変換失敗、メッシュの面欠落、緩い補完、指定した弦公差を満たせない場合も、要求全体をエラーにする。弦公差はメッシュ近似を制御し、入力形状の不確かさやトリムのフィッティングは CAD リーダーの情報として扱う。
+
+NURBS の対応範囲は、固定したカーネルがトリム曲線を生成できる範囲に限られる。例えば、直線境界に非線形の pcurve が必要な有理平面パッチは現在エラーになり、平面に置き換えて取り込むことはない。形状表現に他の未対応の幾何要素が含まれる場合もエラーにする。
+
+SolidCore の STEP・メッシュ化 crate は現在 crates.io 未公開のため、`Cargo.toml` で Git のリビジョンを固定している。この版の Cutrail を crates.io に公開するには、依存先の公開または別途パッケージ化が必要になる。
+
+Rust/WASM の利用側では、ファイルのテキストを `model_from_step_str` に渡せる。`cutrail-wasm` の JavaScript バインディングへの STEP 読込追加は今回の対象に含めない。`stepio` を使う WASM をリンクする際は、SolidCore が推奨する 8 MiB のスタック（`-C link-arg=-zstack-size=8388608`）を設定する。STEP feature の WASM 検証はコンパイル確認であり、ブラウザ・Node での実行検証は行っていない。
 
 ## 設計モデルとの比較
 

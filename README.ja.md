@@ -27,7 +27,7 @@ cutrail = "0.1"
 
 | Cargo feature | 追加されるもの |
 |---|---|
-| `stepio` | STEP からの素材・設計モデルの読込（truck 経由） |
+| `stepio` | STEP 読込と解析面・NURBS の CAD モデル保持（SolidCore 経由） |
 | `serde` | 姿勢・区間・工具・設定・レポート・メッシュ・B-rep の `Serialize` / `Deserialize` |
 | `parallel` | manifold-rust の並列ブーリアン（native のみ） |
 
@@ -76,7 +76,7 @@ let seg = MotionSegment::linear(
 | `CutReport`、`CutOutcome`、`Collision` | 1 回の加工の結果（`NoChange` / `Updated` / `Exhausted`、除去体積、変更範囲、干渉） |
 | `TriMesh` | メッシュの読み書き（STL・OBJ 読込、STL・OBJ・glTF・3MF 書出）、頂点の併合 |
 | `StockShape` | 直方体・円柱・メッシュの素材 |
-| `step`（feature `stepio`） | STEP ファイルから素材・設計モデルを読む |
+| `step`（feature `stepio`） | STEP から素材・設計メッシュを読む、または `StepModel` で CAD 形状を保持する |
 | `Brep` | 解析面に復元した B-rep と STEP 書出 |
 | `DesignComparison` | 設計モデルとの差（削り残し・削りすぎ） |
 | `SegmentBuilder` | 姿勢の列を距離・角度のしきい値と弦からの偏差の上限で区間にまとめる |
@@ -123,7 +123,7 @@ wasm-pack build cutrail-wasm --target web --release --out-dir www/pkg && python3
 ## 依存
 
 - [manifold-rust](https://github.com/larsbrubaker/manifold-rust)（Apache-2.0）：メッシュブーリアン
-- [truck](https://github.com/ricosjp/truck)（Apache-2.0、feature `stepio`）：STEP の読込とメッシュ化
+- [SolidCore](https://github.com/tangency-labs/solidcore)（Apache-2.0、feature `stepio`）：STEP 読込、CAD レコードの保持、メッシュ化。未公開 crate のため Git のリビジョンを固定する（[ガイド](docs/ja/guide.md)参照）
 - [zip](https://crates.io/crates/zip)：3MF、[web-time](https://crates.io/crates/web-time)：WASM での時刻、[thiserror](https://crates.io/crates/thiserror)
 
 ## ライセンス
